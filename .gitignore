@@ -1,0 +1,19 @@
+# Datasets
+datasets/
+
+# Outputs
+prototype/prosodic_features
+
+# Archives
+*.zip
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Mac
+.DS_Store
+
+# Idea
+.idea/
