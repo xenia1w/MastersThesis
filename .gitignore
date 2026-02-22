@@ -64,6 +64,7 @@ logs/
 
 # Datasets
 *.zip
+data/cache
 
 # Model checkpoints
 checkpoints/
