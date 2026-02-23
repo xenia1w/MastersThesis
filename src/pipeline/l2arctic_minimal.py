@@ -1,122 +1,151 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Dict, Iterable, List
 
 import torch
 import torch.nn.functional as F
+from tqdm import tqdm
+from loguru import logger
 
-from src.data.audio_utils import load_l2arctic_wav
-from src.features.utterance_embedding import mean_std_pool
+from src.controllers.l2arctic_minimal_controller import L2ArcticMinimalController
 from src.metrics.similarity import (
     cosine,
     frame_level_similarity_naive,
     frame_level_similarity_topk,
 )
-from src.models.wavlm_encoder import WavLMEncoder
+from src.models.l2arctic_minimal import (
+    L2ArcticEmbedding,
+    L2ArcticSample,
+    SpeakerCentroid,
+    SpeakerGroup,
+)
 
 
-def default_samples() -> List[Tuple[str, str]]:
+def default_samples() -> List[L2ArcticSample]:
     return [
-        ("ABA", "arctic_a0001.wav"),
-        ("ABA", "arctic_a0002.wav"),
-        ("ABA", "arctic_a0003.wav"),
-        ("ASI", "arctic_a0001.wav"),
-        ("ASI", "arctic_a0002.wav"),
-        ("ASI", "arctic_a0003.wav"),
-        ("BWC", "arctic_a0001.wav"),
-        ("BWC", "arctic_a0002.wav"),
-        ("BWC", "arctic_a0003.wav"),
+        L2ArcticSample(speaker_id="ABA", wav_name="arctic_a0001.wav"),
+        L2ArcticSample(speaker_id="ABA", wav_name="arctic_a0002.wav"),
+        L2ArcticSample(speaker_id="ABA", wav_name="arctic_a0003.wav"),
+        L2ArcticSample(speaker_id="ASI", wav_name="arctic_a0001.wav"),
+        L2ArcticSample(speaker_id="ASI", wav_name="arctic_a0002.wav"),
+        L2ArcticSample(speaker_id="ASI", wav_name="arctic_a0003.wav"),
+        L2ArcticSample(speaker_id="BWC", wav_name="arctic_a0001.wav"),
+        L2ArcticSample(speaker_id="BWC", wav_name="arctic_a0002.wav"),
+        L2ArcticSample(speaker_id="BWC", wav_name="arctic_a0003.wav"),
     ]
 
 
-def run_l2arctic_minimal(
-    outer_zip: str = "data/raw/l2arctic_release_v5.0.zip",
-    samples: Iterable[Tuple[str, str]] | None = None,
-    model_name: str = "microsoft/wavlm-base-plus-sv",
-    save_root: str = "data/processed/l2arctic_minimal_embeddings",
+def prepare_sample_list(
+    samples: Iterable[L2ArcticSample] | None,
+) -> List[L2ArcticSample]:
+    return list(samples) if samples is not None else default_samples()
+
+
+def group_by_speaker(
+    results: List[L2ArcticEmbedding],
+) -> List[SpeakerGroup]:
+    by_speaker: Dict[str, List[L2ArcticEmbedding]] = {}
+    for embedding in results:
+        by_speaker.setdefault(embedding.speaker_id, []).append(embedding)
+    return [
+        SpeakerGroup(speaker_id=speaker_id, embeddings=embeddings)
+        for speaker_id, embeddings in sorted(by_speaker.items())
+    ]
+
+
+def compute_speaker_centroids(
+    by_speaker: List[SpeakerGroup],
+) -> List[SpeakerCentroid]:
+    centroids: List[SpeakerCentroid] = []
+    for group in by_speaker:
+        embs = torch.stack([it.utt_emb for it in group.embeddings], dim=0)
+        centroid = F.normalize(embs.mean(dim=0), dim=0)
+        centroids.append(
+            SpeakerCentroid(speaker_id=group.speaker_id, centroid=centroid)
+        )
+    return centroids
+
+
+def print_speaker_centroid_similarities(
+    centroids: List[SpeakerCentroid],
 ) -> None:
-    sample_list = list(samples) if samples is not None else default_samples()
-
-    encoder = WavLMEncoder(model_name=model_name)
-    save_root_path = Path(save_root)
-    save_root_path.mkdir(parents=True, exist_ok=True)
-
-    results = []
-    for speaker_id, wav_name in sample_list:
-        waveform, sr = load_l2arctic_wav(outer_zip, speaker_id, wav_name)
-        frames = encoder.encode_frames(waveform, sr)
-        utt_emb = encoder.encode_utterance(waveform, sr)
-        utt_emb_meanstd = mean_std_pool(frames)
-
-        speaker_dir = save_root_path / speaker_id
-        speaker_dir.mkdir(parents=True, exist_ok=True)
-        out_path = speaker_dir / f"{wav_name.replace('.wav', '')}.pt"
-        torch.save(
-            {
-                "speaker_id": speaker_id,
-                "wav_name": wav_name,
-                "sampling_rate": sr,
-                "frame_representations": frames,
-                "utterance_embedding": utt_emb,
-                "utterance_embedding_meanstd": utt_emb_meanstd,
-                "model_name": encoder.model_name,
-            },
-            out_path,
-        )
-
-        results.append(
-            {
-                "speaker_id": speaker_id,
-                "wav_name": wav_name,
-                "frames": frames,
-                "utt_emb": utt_emb,
-                "utt_emb_meanstd": utt_emb_meanstd,
-            }
-        )
-
-    print("Saved embeddings to", save_root_path)
-    print()
-
-    # Speaker centroids (xvector)
-    by_speaker = {}
-    for r in results:
-        by_speaker.setdefault(r["speaker_id"], []).append(r)
-
-    centroids = {}
-    for speaker_id, items in by_speaker.items():
-        embs = torch.stack([it["utt_emb"] for it in items], dim=0)
-        centroids[speaker_id] = F.normalize(embs.mean(dim=0), dim=0)
-
-    print("Speaker centroid cosine similarities (xvector):")
-    speakers = sorted(centroids.keys())
+    logger.info("Speaker centroid cosine similarities (xvector):")
+    speakers = sorted(centroids, key=lambda item: item.speaker_id)
     for i in range(len(speakers)):
         for j in range(i + 1, len(speakers)):
             s1, s2 = speakers[i], speakers[j]
-            sim = cosine(centroids[s1], centroids[s2])
-            print(f"  {s1} vs {s2}: {sim:.4f}")
-    print()
+            sim = cosine(s1.centroid, s2.centroid)
+            logger.info("  {} vs {}: {:.4f}", s1.speaker_id, s2.speaker_id, sim)
+    logger.info("")
 
-    print("Within-speaker avg cosine to centroid (xvector):")
-    for speaker_id, items in by_speaker.items():
-        sims = [cosine(it["utt_emb"], centroids[speaker_id]) for it in items]
+
+def print_within_speaker_similarities(
+    by_speaker: List[SpeakerGroup],
+    centroids: List[SpeakerCentroid],
+) -> None:
+    logger.info("Within-speaker avg cosine to centroid (xvector):")
+    centroid_lookup = {c.speaker_id: c.centroid for c in centroids}
+    for group in by_speaker:
+        sims = [
+            cosine(it.utt_emb, centroid_lookup[group.speaker_id])
+            for it in group.embeddings
+        ]
         avg_sim = sum(sims) / len(sims)
-        print(f"  {speaker_id}: {avg_sim:.4f}")
+        logger.info("  {}: {:.4f}", group.speaker_id, avg_sim)
+    logger.info("")
 
-    print()
-    print("Pairwise comparisons (xvector + frame-level):")
+
+def print_pairwise_similarities(
+    results: List[L2ArcticEmbedding],
+) -> None:
+    logger.info("Pairwise comparisons (xvector + frame-level):")
     for i in range(len(results)):
         for j in range(i + 1, len(results)):
             a = results[i]
             b = results[j]
-            utt_sim = cosine(a["utt_emb"], b["utt_emb"])
-            utt_sim_meanstd = cosine(a["utt_emb_meanstd"], b["utt_emb_meanstd"])
-            frame_sim_naive = frame_level_similarity_naive(a["frames"], b["frames"])
-            frame_sim_topk = frame_level_similarity_topk(a["frames"], b["frames"])
-            label = f'{a["speaker_id"]}:{a["wav_name"]} vs {b["speaker_id"]}:{b["wav_name"]}'
-            print(label)
-            print(f"  utterance-level cosine (xvector): {utt_sim:.4f}")
-            print(f"  utterance-level cosine (mean+std): {utt_sim_meanstd:.4f}")
-            print(f"  frame-level cosine (naive): {frame_sim_naive:.4f}")
-            print(f"  frame-level cosine (topk):  {frame_sim_topk:.4f}")
-            print()
+            utt_sim = cosine(a.utt_emb, b.utt_emb)
+            utt_sim_meanstd = cosine(a.utt_emb_meanstd, b.utt_emb_meanstd)
+            frame_sim_naive = frame_level_similarity_naive(a.frames, b.frames)
+            frame_sim_topk = frame_level_similarity_topk(a.frames, b.frames)
+            label = (
+                f"{a.speaker_id}:{a.wav_name} "
+                f"vs {b.speaker_id}:{b.wav_name}"
+            )
+            logger.info(label)
+            logger.info("  utterance-level cosine (xvector): {:.4f}", utt_sim)
+            logger.info("  utterance-level cosine (mean+std): {:.4f}", utt_sim_meanstd)
+            logger.info("  frame-level cosine (naive): {:.4f}", frame_sim_naive)
+            logger.info("  frame-level cosine (topk):  {:.4f}", frame_sim_topk)
+            logger.info("")
+
+
+def run_l2arctic_minimal(
+    outer_zip: str = "data/raw/l2arctic_release_v5.0.zip",
+    samples: Iterable[L2ArcticSample] | None = None,
+    model_name: str = "microsoft/wavlm-base-plus-sv",
+    save_root: str = "data/processed/l2arctic_minimal_embeddings",
+) -> List[L2ArcticEmbedding]:
+    sample_list = prepare_sample_list(samples)
+
+    controller = L2ArcticMinimalController(
+        outer_zip=outer_zip,
+        model_name=model_name,
+        save_root=save_root,
+    )
+    results = []
+    for sample in tqdm(sample_list, desc="Encoding L2ARCTIC", unit="utt"):
+        embedding = controller.encode_sample(sample)
+        controller.save_embedding(embedding)
+        results.append(embedding)
+
+    logger.info("Saved embeddings to {}", controller.save_root_path)
+    logger.info("")
+
+    # Speaker centroids (xvector)
+    by_speaker = group_by_speaker(results)
+    centroids = compute_speaker_centroids(by_speaker)
+    print_speaker_centroid_similarities(centroids)
+    print_within_speaker_similarities(by_speaker, centroids)
+    print_pairwise_similarities(results)
+
+    return results
