@@ -4,12 +4,19 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
+    "just>=0.8.165",
     "librosa>=0.11.0",
     "loguru>=0.7.3",
     "numpy>=2.4.2",
+    "pydantic>=2.11.0",
     "soundfile>=0.13.1",
     "torch>=2.10.0",
     "torchaudio>=2.10.0",
     "tqdm>=4.67.3",
     "transformers>=5.2.0",
+]
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.18",
 ]

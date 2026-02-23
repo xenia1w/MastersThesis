@@ -15,7 +15,8 @@ class WavLMEncoder:
         cache_dir: Optional[str] = None,
     ) -> None:
         self.model_name = model_name
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(resolved_device)
 
         cache_path = Path(cache_dir or "data/cache/huggingface")
         cache_path.mkdir(parents=True, exist_ok=True)
@@ -26,7 +27,7 @@ class WavLMEncoder:
         self.model = WavLMForXVector.from_pretrained(
             model_name, cache_dir=str(cache_path)
         )
-        self.model.to(self.device)
+        torch.nn.Module.to(self.model, self.device)
         self.model.eval()
         for param in self.model.parameters():
             param.requires_grad = False
