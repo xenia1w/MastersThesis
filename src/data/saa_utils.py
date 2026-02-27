@@ -5,7 +5,7 @@ import io
 import zipfile
 from typing import List, Optional
 
-from src.models.saa_minimal import SAASample
+from src.models.prosody import SAASample
 
 
 def _parse_int(value: str | None) -> Optional[int]:

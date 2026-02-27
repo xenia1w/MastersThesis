@@ -13,12 +13,7 @@ from src.metrics.similarity import (
     frame_level_similarity_naive,
     frame_level_similarity_topk,
 )
-from src.models.l2arctic_minimal import (
-    L2ArcticEmbedding,
-    L2ArcticSample,
-    SpeakerCentroid,
-    SpeakerGroup,
-)
+from src.models.prosody import L2ArcticSample, ProsodyEmbedding
 
 
 def default_samples() -> List[L2ArcticSample]:
@@ -42,61 +37,51 @@ def prepare_sample_list(
 
 
 def group_by_speaker(
-    results: List[L2ArcticEmbedding],
-) -> List[SpeakerGroup]:
-    by_speaker: Dict[str, List[L2ArcticEmbedding]] = {}
+    results: List[ProsodyEmbedding],
+) -> Dict[str, List[ProsodyEmbedding]]:
+    by_speaker: Dict[str, List[ProsodyEmbedding]] = {}
     for embedding in results:
         by_speaker.setdefault(embedding.speaker_id, []).append(embedding)
-    return [
-        SpeakerGroup(speaker_id=speaker_id, embeddings=embeddings)
-        for speaker_id, embeddings in sorted(by_speaker.items())
-    ]
+    return by_speaker
 
 
 def compute_speaker_centroids(
-    by_speaker: List[SpeakerGroup],
-) -> List[SpeakerCentroid]:
-    centroids: List[SpeakerCentroid] = []
-    for group in by_speaker:
-        embs = torch.stack([it.utt_emb for it in group.embeddings], dim=0)
-        centroid = F.normalize(embs.mean(dim=0), dim=0)
-        centroids.append(
-            SpeakerCentroid(speaker_id=group.speaker_id, centroid=centroid)
-        )
+    by_speaker: Dict[str, List[ProsodyEmbedding]],
+) -> Dict[str, torch.Tensor]:
+    centroids: Dict[str, torch.Tensor] = {}
+    for speaker_id, embeddings in by_speaker.items():
+        embs = torch.stack([it.utt_emb for it in embeddings], dim=0)
+        centroids[speaker_id] = F.normalize(embs.mean(dim=0), dim=0)
     return centroids
 
 
 def print_speaker_centroid_similarities(
-    centroids: List[SpeakerCentroid],
+    centroids: Dict[str, torch.Tensor],
 ) -> None:
     logger.info("Speaker centroid cosine similarities (xvector):")
-    speakers = sorted(centroids, key=lambda item: item.speaker_id)
+    speakers = sorted(centroids.keys())
     for i in range(len(speakers)):
         for j in range(i + 1, len(speakers)):
             s1, s2 = speakers[i], speakers[j]
-            sim = cosine(s1.centroid, s2.centroid)
-            logger.info("  {} vs {}: {:.4f}", s1.speaker_id, s2.speaker_id, sim)
+            sim = cosine(centroids[s1], centroids[s2])
+            logger.info("  {} vs {}: {:.4f}", s1, s2, sim)
     logger.info("")
 
 
 def print_within_speaker_similarities(
-    by_speaker: List[SpeakerGroup],
-    centroids: List[SpeakerCentroid],
+    by_speaker: Dict[str, List[ProsodyEmbedding]],
+    centroids: Dict[str, torch.Tensor],
 ) -> None:
     logger.info("Within-speaker avg cosine to centroid (xvector):")
-    centroid_lookup = {c.speaker_id: c.centroid for c in centroids}
-    for group in by_speaker:
-        sims = [
-            cosine(it.utt_emb, centroid_lookup[group.speaker_id])
-            for it in group.embeddings
-        ]
+    for speaker_id, embeddings in sorted(by_speaker.items()):
+        sims = [cosine(it.utt_emb, centroids[speaker_id]) for it in embeddings]
         avg_sim = sum(sims) / len(sims)
-        logger.info("  {}: {:.4f}", group.speaker_id, avg_sim)
+        logger.info("  {}: {:.4f}", speaker_id, avg_sim)
     logger.info("")
 
 
 def print_pairwise_similarities(
-    results: List[L2ArcticEmbedding],
+    results: List[ProsodyEmbedding],
 ) -> None:
     logger.info("Pairwise comparisons (xvector + frame-level):")
     for i in range(len(results)):
@@ -108,8 +93,8 @@ def print_pairwise_similarities(
             frame_sim_naive = frame_level_similarity_naive(a.frames, b.frames)
             frame_sim_topk = frame_level_similarity_topk(a.frames, b.frames)
             label = (
-                f"{a.speaker_id}:{a.wav_name} "
-                f"vs {b.speaker_id}:{b.wav_name}"
+                f"{a.speaker_id}:{a.file_name} "
+                f"vs {b.speaker_id}:{b.file_name}"
             )
             logger.info(label)
             logger.info("  utterance-level cosine (xvector): {:.4f}", utt_sim)
@@ -124,7 +109,7 @@ def run_l2arctic_minimal(
     samples: Iterable[L2ArcticSample] | None = None,
     model_name: str = "microsoft/wavlm-base-plus-sv",
     save_root: str = "data/processed/l2arctic_minimal_embeddings",
-) -> List[L2ArcticEmbedding]:
+) -> List[ProsodyEmbedding]:
     sample_list = prepare_sample_list(samples)
 
     controller = L2ArcticMinimalController(

@@ -14,12 +14,7 @@ from src.metrics.similarity import (
     frame_level_similarity_naive,
     frame_level_similarity_topk,
 )
-from src.models.saa_minimal import (
-    LanguageCentroid,
-    LanguageGroup,
-    SAAEmbedding,
-    SAASample,
-)
+from src.models.prosody import ProsodyEmbedding, SAASample
 
 
 def prepare_sample_list(
@@ -29,35 +24,32 @@ def prepare_sample_list(
     return list(samples) if samples is not None else load_saa_samples(outer_zip)
 
 
-def group_by_language(results: List[SAAEmbedding]) -> List[LanguageGroup]:
-    by_language: Dict[str, List[SAAEmbedding]] = {}
+def group_by_language(
+    results: List[ProsodyEmbedding],
+) -> Dict[str, List[ProsodyEmbedding]]:
+    by_language: Dict[str, List[ProsodyEmbedding]] = {}
     for embedding in results:
-        key = embedding.native_language or "unknown"
+        key = (
+            embedding.saa_metadata.native_language
+            if embedding.saa_metadata and embedding.saa_metadata.native_language
+            else "unknown"
+        )
         by_language.setdefault(key, []).append(embedding)
-    return [
-        LanguageGroup(native_language=language, embeddings=embeddings)
-        for language, embeddings in sorted(by_language.items())
-    ]
+    return by_language
 
 
 def compute_language_centroids(
-    by_language: List[LanguageGroup],
-) -> List[LanguageCentroid]:
-    centroids: List[LanguageCentroid] = []
-    for group in by_language:
-        embs = torch.stack([it.utt_emb for it in group.embeddings], dim=0)
-        centroid = F.normalize(embs.mean(dim=0), dim=0)
-        centroids.append(
-            LanguageCentroid(
-                native_language=group.native_language,
-                centroid=centroid,
-            )
-        )
+    by_language: Dict[str, List[ProsodyEmbedding]],
+) -> Dict[str, torch.Tensor]:
+    centroids: Dict[str, torch.Tensor] = {}
+    for language, embeddings in by_language.items():
+        embs = torch.stack([it.utt_emb for it in embeddings], dim=0)
+        centroids[language] = F.normalize(embs.mean(dim=0), dim=0)
     return centroids
 
 
 def print_language_centroid_similarities(
-    centroids: List[LanguageCentroid],
+    centroids: Dict[str, torch.Tensor],
     max_pairs: int = 200,
 ) -> None:
     if len(centroids) * (len(centroids) - 1) // 2 > max_pairs:
@@ -69,33 +61,29 @@ def print_language_centroid_similarities(
         return
 
     logger.info("Language centroid cosine similarities (xvector):")
-    languages = sorted(centroids, key=lambda item: item.native_language)
+    languages = sorted(centroids.keys())
     for i in range(len(languages)):
         for j in range(i + 1, len(languages)):
             l1, l2 = languages[i], languages[j]
-            sim = cosine(l1.centroid, l2.centroid)
-            logger.info("  {} vs {}: {:.4f}", l1.native_language, l2.native_language, sim)
+            sim = cosine(centroids[l1], centroids[l2])
+            logger.info("  {} vs {}: {:.4f}", l1, l2, sim)
     logger.info("")
 
 
 def print_within_language_similarities(
-    by_language: List[LanguageGroup],
-    centroids: List[LanguageCentroid],
+    by_language: Dict[str, List[ProsodyEmbedding]],
+    centroids: Dict[str, torch.Tensor],
 ) -> None:
     logger.info("Within-language avg cosine to centroid (xvector):")
-    centroid_lookup = {c.native_language: c.centroid for c in centroids}
-    for group in by_language:
-        sims = [
-            cosine(it.utt_emb, centroid_lookup[group.native_language])
-            for it in group.embeddings
-        ]
+    for language, embeddings in sorted(by_language.items()):
+        sims = [cosine(it.utt_emb, centroids[language]) for it in embeddings]
         avg_sim = sum(sims) / len(sims)
-        logger.info("  {}: {:.4f}", group.native_language, avg_sim)
+        logger.info("  {}: {:.4f}", language, avg_sim)
     logger.info("")
 
 
 def print_pairwise_similarities(
-    results: List[SAAEmbedding],
+    results: List[ProsodyEmbedding],
     max_items: int = 25,
 ) -> None:
     if len(results) > max_items:
@@ -117,8 +105,8 @@ def print_pairwise_similarities(
             frame_sim_naive = frame_level_similarity_naive(a.frames, b.frames)
             frame_sim_topk = frame_level_similarity_topk(a.frames, b.frames)
             label = (
-                f"{a.native_language}:{a.filename} "
-                f"vs {b.native_language}:{b.filename}"
+                f"{a.saa_metadata.native_language if a.saa_metadata else 'unknown'}:{a.file_name} "
+                f"vs {b.saa_metadata.native_language if b.saa_metadata else 'unknown'}:{b.file_name}"
             )
             logger.info(label)
             logger.info("  utterance-level cosine (xvector): {:.4f}", utt_sim)
@@ -133,7 +121,7 @@ def run_saa_minimal(
     samples: Iterable[SAASample] | None = None,
     model_name: str = "microsoft/wavlm-base-plus-sv",
     save_root: str = "data/processed/saa_minimal_embeddings",
-) -> List[SAAEmbedding]:
+) -> List[ProsodyEmbedding]:
     sample_list = prepare_sample_list(outer_zip, samples)
 
     controller = SAAMinimalController(
