@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import os
+import tempfile
 import zipfile
 from typing import Tuple
 
@@ -43,6 +45,43 @@ def load_l2arctic_wav(
     if sr != target_sr:
         audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr)
         sr = target_sr
+
+    waveform = torch.from_numpy(audio.astype(np.float32))
+    return waveform, sr
+
+
+def load_saa_mp3(
+    outer_zip_path: str,
+    filename: str,
+    target_sr: int = 16000,
+) -> Tuple[torch.Tensor, int]:
+    """
+    Load a single Speech Accent Archive mp3 from the archive zip without full extraction.
+
+    Args:
+        outer_zip_path: Path to archive.zip
+        filename: Base filename without extension, e.g., "afrikaans1"
+        target_sr: Target sampling rate
+
+    Returns:
+        (waveform, sampling_rate) where waveform is 1D float32 torch tensor
+    """
+    mp3_path = f"recordings/recordings/{filename}.mp3"
+
+    with zipfile.ZipFile(outer_zip_path) as outer:
+        mp3_bytes = outer.read(mp3_path)
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp.write(mp3_bytes)
+            tmp_path = tmp.name
+
+        audio, sr = librosa.load(tmp_path, sr=target_sr, mono=True)
+        sr = int(sr)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
     waveform = torch.from_numpy(audio.astype(np.float32))
     return waveform, sr
