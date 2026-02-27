@@ -9,7 +9,7 @@ from typing import Dict, Iterable, List, Literal, Sequence
 
 import torch
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.data.audio_utils import load_l2arctic_wav, load_saa_mp3
 from src.data.l2arctic_utils import list_l2arctic_samples
@@ -35,6 +35,57 @@ class RepresentationConfig(BaseModel):
     model_name: str
     embedding_type: EmbeddingType
 
+
+class RepresentationRuntime(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    config: RepresentationConfig
+    xvector_encoder: WavLMEncoder | None = None
+    base_encoder: WavLMBaseEncoder | None = None
+
+
+class RepresentationEmbeddings(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    name: str
+    embeddings: List[torch.Tensor]
+
+
+class SpeakerStabilityPayload(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    dataset: DatasetName
+    speaker_id: str
+    representation: str
+    model_name: str
+    ordering: str
+    random_seed: int
+    ks: List[int]
+    ordered_utterance_ids: List[str]
+    num_utterances: int
+    total_seconds: float
+    total_seconds_by_k: Dict[str, float]
+    embeddings_by_k: Dict[int | str, torch.Tensor]
+    cosine_to_full: Dict[str, float]
+    stability_k: int | None
+    stability_seconds: float | None
+    stability_threshold: float
+    stability_epsilon: float
+    stability_consecutive: int
+
+
+class SpeakerStabilitySummary(BaseModel):
+    speaker_id: str
+    representation: str
+    model_name: str
+    ks: List[int]
+    cosine_to_full: Dict[str, float]
+    total_seconds_by_k: Dict[str, float]
+    stability_k: int | None
+    stability_seconds: float | None
+    stability_threshold: float
+    stability_epsilon: float
+    stability_consecutive: int
 
 class SpeakerStabilityConfig(BaseModel):
     dataset: DatasetName = Field(..., description="Dataset to run: l2arctic or saa.")
@@ -189,12 +240,22 @@ def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
     representations = (
         config.representations if config.representations else _default_representations()
     )
-    encoders: Dict[str, WavLMEncoder | WavLMBaseEncoder] = {}
+    runtimes: List[RepresentationRuntime] = []
     for rep in representations:
         if rep.embedding_type == "xvector":
-            encoders[rep.name] = WavLMEncoder(model_name=rep.model_name)
+            runtimes.append(
+                RepresentationRuntime(
+                    config=rep,
+                    xvector_encoder=WavLMEncoder(model_name=rep.model_name),
+                )
+            )
         else:
-            encoders[rep.name] = WavLMBaseEncoder(model_name=rep.model_name)
+            runtimes.append(
+                RepresentationRuntime(
+                    config=rep,
+                    base_encoder=WavLMBaseEncoder(model_name=rep.model_name),
+                )
+            )
 
     by_speaker, speakers = _prepare_samples(config, outer_zip)
 
@@ -210,30 +271,39 @@ def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
         ordered_ids = [_utterance_id(sample) for sample in samples]
         durations: List[float] = []
 
-        per_rep_embeddings: Dict[str, List[torch.Tensor]] = {
-            rep.name: [] for rep in representations
-        }
+        per_rep_embeddings: List[RepresentationEmbeddings] = [
+            RepresentationEmbeddings(name=rep.config.name, embeddings=[])
+            for rep in runtimes
+        ]
 
         for sample in samples:
             waveform, sr = _load_audio(outer_zip, sample)
             durations.append(float(len(waveform)) / float(sr))
 
-            for rep in representations:
+            for rep in runtimes:
                 embedding = None
                 if config.use_cached_utterances:
-                    embedding = _load_cached_embedding(cache_root, sample, rep)
+                    embedding = _load_cached_embedding(cache_root, sample, rep.config)
 
                 if embedding is None:
-                    encoder = encoders[rep.name]
-                    if rep.embedding_type == "xvector":
-                        embedding = encoder.encode_utterance(waveform, sr)
+                    if rep.config.embedding_type == "xvector":
+                        if rep.xvector_encoder is None:
+                            raise RuntimeError(
+                                f"Missing xvector encoder for {rep.config.name}"
+                            )
+                        embedding = rep.xvector_encoder.encode_utterance(waveform, sr)
                     else:
-                        frames = encoder.encode_frames(waveform, sr)
+                        if rep.base_encoder is None:
+                            raise RuntimeError(
+                                f"Missing base encoder for {rep.config.name}"
+                            )
+                        frames = rep.base_encoder.encode_frames(waveform, sr)
                         embedding = mean_std_pool(frames)
 
-                per_rep_embeddings[rep.name].append(
-                    normalize_embedding(embedding).cpu()
-                )
+                for entry in per_rep_embeddings:
+                    if entry.name == rep.config.name:
+                        entry.embeddings.append(normalize_embedding(embedding).cpu())
+                        break
 
         cumulative_seconds = []
         total = 0.0
@@ -241,8 +311,12 @@ def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
             total += dur
             cumulative_seconds.append(total)
 
-        for rep in representations:
-            rep_embeddings = per_rep_embeddings[rep.name]
+        for rep in runtimes:
+            rep_embeddings = next(
+                entry.embeddings
+                for entry in per_rep_embeddings
+                if entry.name == rep.config.name
+            )
             centroids = running_centroids(rep_embeddings)
             if not centroids:
                 continue
@@ -268,47 +342,49 @@ def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
                 if k - 1 < len(cumulative_seconds)
             }
 
-            payload = {
-                "dataset": config.dataset,
-                "speaker_id": speaker_id,
-                "representation": rep.name,
-                "model_name": rep.model_name,
-                "ordering": config.ordering,
-                "random_seed": config.random_seed,
-                "ks": list(config.ks),
-                "ordered_utterance_ids": ordered_ids,
-                "num_utterances": len(samples),
-                "total_seconds": cumulative_seconds[-1] if cumulative_seconds else 0.0,
-                "total_seconds_by_k": total_seconds_by_k,
-                "embeddings_by_k": selected | {"full": full},
-                "cosine_to_full": {str(k): v for k, v in cosines_by_k.items()},
-                "stability_k": stable_k,
-                "stability_seconds": stable_seconds,
-                "stability_threshold": config.stability_threshold,
-                "stability_epsilon": config.stability_epsilon,
-                "stability_consecutive": config.stability_consecutive,
-            }
+            payload = SpeakerStabilityPayload(
+                dataset=config.dataset,
+                speaker_id=speaker_id,
+                representation=rep.config.name,
+                model_name=rep.config.model_name,
+                ordering=config.ordering,
+                random_seed=config.random_seed,
+                ks=list(config.ks),
+                ordered_utterance_ids=ordered_ids,
+                num_utterances=len(samples),
+                total_seconds=cumulative_seconds[-1] if cumulative_seconds else 0.0,
+                total_seconds_by_k=total_seconds_by_k,
+                embeddings_by_k=selected | {"full": full},
+                cosine_to_full={str(k): v for k, v in cosines_by_k.items()},
+                stability_k=stable_k,
+                stability_seconds=stable_seconds,
+                stability_threshold=config.stability_threshold,
+                stability_epsilon=config.stability_epsilon,
+                stability_consecutive=config.stability_consecutive,
+            )
 
             speaker_dir = save_root / speaker_id
             speaker_dir.mkdir(parents=True, exist_ok=True)
-            out_path = speaker_dir / f"{rep.name}.pt"
-            torch.save(payload, out_path)
+            out_path = speaker_dir / f"{rep.config.name}.pt"
+            torch.save(payload.model_dump(), out_path)
 
-            summary = {
-                "speaker_id": speaker_id,
-                "representation": rep.name,
-                "model_name": rep.model_name,
-                "ks": list(config.ks),
-                "cosine_to_full": {str(k): v for k, v in cosines_by_k.items()},
-                "total_seconds_by_k": total_seconds_by_k,
-                "stability_k": stable_k,
-                "stability_seconds": stable_seconds,
-                "stability_threshold": config.stability_threshold,
-                "stability_epsilon": config.stability_epsilon,
-                "stability_consecutive": config.stability_consecutive,
-            }
-            summary_path = speaker_dir / f"{rep.name}.json"
-            summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            summary = SpeakerStabilitySummary(
+                speaker_id=speaker_id,
+                representation=rep.config.name,
+                model_name=rep.config.model_name,
+                ks=list(config.ks),
+                cosine_to_full={str(k): v for k, v in cosines_by_k.items()},
+                total_seconds_by_k=total_seconds_by_k,
+                stability_k=stable_k,
+                stability_seconds=stable_seconds,
+                stability_threshold=config.stability_threshold,
+                stability_epsilon=config.stability_epsilon,
+                stability_consecutive=config.stability_consecutive,
+            )
+            summary_path = speaker_dir / f"{rep.config.name}.json"
+            summary_path.write_text(
+                json.dumps(summary.model_dump(), indent=2), encoding="utf-8"
+            )
 
         logger.info("Saved stability outputs for speaker {}", speaker_id)
 
