@@ -85,3 +85,4 @@ runs/   # tensorboard
 *.swp
 *.swo
 *.tmp
+/data/processed/
