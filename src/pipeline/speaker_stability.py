@@ -24,7 +24,7 @@ from src.features.incremental_embeddings import (
 from src.features.utterance_embedding import mean_std_pool
 from src.metrics.similarity import cosine
 from src.models.prosody import L2ArcticSample, SAASample
-from src.models.wavlm_encoder import WavLMEncoder
+from src.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 DatasetName = Literal["l2arctic", "saa"]
 EmbeddingType = Literal["mean_std", "xvector"]
@@ -189,9 +189,12 @@ def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
     representations = (
         config.representations if config.representations else _default_representations()
     )
-    encoders = {
-        rep.name: WavLMEncoder(model_name=rep.model_name) for rep in representations
-    }
+    encoders: Dict[str, WavLMEncoder | WavLMBaseEncoder] = {}
+    for rep in representations:
+        if rep.embedding_type == "xvector":
+            encoders[rep.name] = WavLMEncoder(model_name=rep.model_name)
+        else:
+            encoders[rep.name] = WavLMBaseEncoder(model_name=rep.model_name)
 
     by_speaker, speakers = _prepare_samples(config, outer_zip)
 
