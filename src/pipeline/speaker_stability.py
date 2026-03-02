@@ -5,7 +5,7 @@ import json
 import random
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Literal, Sequence
+from typing import Dict, Iterable, List, Literal, Sequence, Tuple, TypeVar
 
 import torch
 from loguru import logger
@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.data.audio_utils import load_l2arctic_wav, load_saa_mp3
 from src.data.l2arctic_utils import list_l2arctic_samples
+from src.data.saa_segmentation import segment_saa_recording
 from src.data.saa_utils import load_saa_samples
 from src.features.incremental_embeddings import (
     cosine_to_full,
@@ -23,11 +24,12 @@ from src.features.incremental_embeddings import (
 )
 from src.features.utterance_embedding import mean_std_pool
 from src.metrics.similarity import cosine
-from src.models.prosody import L2ArcticSample, SAASample
+from src.models.prosody import L2ArcticSample, SAASample, SAASegmentSample
 from src.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 DatasetName = Literal["l2arctic", "saa"]
 EmbeddingType = Literal["mean_std", "xvector"]
+SampleT = TypeVar("SampleT", L2ArcticSample, SAASample, SAASegmentSample)
 
 
 class RepresentationConfig(BaseModel):
@@ -87,6 +89,14 @@ class SpeakerStabilitySummary(BaseModel):
     stability_epsilon: float
     stability_consecutive: int
 
+
+class SAASegmentationConfig(BaseModel):
+    min_sec: float = 2.0
+    max_sec: float = 8.0
+    merge_gap_sec: float = 0.25
+    top_db: int = 30
+
+
 class SpeakerStabilityConfig(BaseModel):
     dataset: DatasetName = Field(..., description="Dataset to run: l2arctic or saa.")
     outer_zip: str | None = Field(default=None, description="Path to dataset zip.")
@@ -104,6 +114,7 @@ class SpeakerStabilityConfig(BaseModel):
     stability_threshold: float = 0.95
     stability_epsilon: float = 0.002
     stability_consecutive: int = 2
+    saa_segmentation: SAASegmentationConfig | None = None
 
 
 def _resolve_outer_zip(config: SpeakerStabilityConfig) -> str:
@@ -143,9 +154,19 @@ def _default_representations() -> List[RepresentationConfig]:
     ]
 
 
-def _utterance_id(sample: L2ArcticSample | SAASample) -> str:
+def _resolve_saa_segmentation(
+    config: SpeakerStabilityConfig,
+) -> SAASegmentationConfig:
+    if config.saa_segmentation is not None:
+        return config.saa_segmentation
+    return SAASegmentationConfig()
+
+
+def _utterance_id(sample: L2ArcticSample | SAASample | SAASegmentSample) -> str:
     if isinstance(sample, L2ArcticSample):
         return sample.wav_name
+    if isinstance(sample, SAASegmentSample):
+        return sample.segment_id
     return sample.filename
 
 
@@ -161,27 +182,42 @@ def _numeric_sort_key(name: str) -> tuple:
     return (name, -1)
 
 
+def _chronological_sort_key(
+    sample: L2ArcticSample | SAASample | SAASegmentSample,
+) -> Tuple[str, float, int]:
+    if isinstance(sample, L2ArcticSample):
+        prefix, number = _numeric_sort_key(sample.wav_name)
+        return (str(prefix), float(number), 0)
+    if isinstance(sample, SAASegmentSample):
+        return (sample.filename, float(sample.start_sample), sample.end_sample)
+    prefix, number = _numeric_sort_key(sample.filename)
+    return (str(prefix), float(number), 0)
+
+
 def order_utterances(
-    samples: List[L2ArcticSample] | List[SAASample],
+    samples: List[SampleT],
     ordering: str,
     seed: int,
-) -> List[L2ArcticSample] | List[SAASample]:
+) -> List[SampleT]:
+    ordered = list(samples)
     if ordering == "random":
         rng = random.Random(seed)
-        shuffled = list(samples)
-        rng.shuffle(shuffled)
-        return shuffled
-    return sorted(samples, key=lambda s: _numeric_sort_key(_utterance_id(s)))
+        rng.shuffle(ordered)
+        return ordered
+    ordered.sort(key=_chronological_sort_key)
+    return ordered
 
 
 def _load_cached_embedding(
     cache_root: Path,
-    sample: L2ArcticSample | SAASample,
+    sample: L2ArcticSample | SAASample | SAASegmentSample,
     representation: RepresentationConfig,
 ) -> torch.Tensor | None:
     if isinstance(sample, L2ArcticSample):
         stem = sample.wav_name.replace(".wav", "")
         cache_path = cache_root / sample.speaker_id / f"{stem}.pt"
+    elif isinstance(sample, SAASegmentSample):
+        cache_path = cache_root / sample.speaker_id / f"{sample.segment_id}.pt"
     else:
         cache_path = cache_root / sample.speaker_id / f"{sample.filename}.pt"
 
@@ -206,22 +242,74 @@ def _load_cached_embedding(
     return embedding
 
 
+def _load_saa_waveform_cached(
+    outer_zip: str,
+    filename: str,
+    audio_cache: Dict[str, tuple[torch.Tensor, int]],
+) -> tuple[torch.Tensor, int]:
+    cached = audio_cache.get(filename)
+    if cached is not None:
+        return cached
+    waveform, sr = load_saa_mp3(outer_zip, filename)
+    audio_cache[filename] = (waveform, sr)
+    return waveform, sr
+
+
+def _slice_segment_audio(
+    waveform: torch.Tensor,
+    sample: SAASegmentSample,
+) -> torch.Tensor:
+    start = max(0, sample.start_sample)
+    end = min(int(waveform.shape[0]), sample.end_sample)
+    if end <= start:
+        return waveform[:0]
+    return waveform[start:end]
+
+
 def _load_audio(
     outer_zip: str,
-    sample: L2ArcticSample | SAASample,
+    sample: L2ArcticSample | SAASample | SAASegmentSample,
+    audio_cache: Dict[str, tuple[torch.Tensor, int]],
 ) -> tuple[torch.Tensor, int]:
     if isinstance(sample, L2ArcticSample):
         return load_l2arctic_wav(outer_zip, sample.speaker_id, sample.wav_name)
-    return load_saa_mp3(outer_zip, sample.filename)
+    if isinstance(sample, SAASegmentSample):
+        waveform, sr = _load_saa_waveform_cached(outer_zip, sample.filename, audio_cache)
+        return _slice_segment_audio(waveform, sample), sr
+    return _load_saa_waveform_cached(outer_zip, sample.filename, audio_cache)
+
+
+def _prepare_saa_segmented_samples(
+    config: SpeakerStabilityConfig,
+    outer_zip: str,
+) -> List[SAASegmentSample]:
+    saa_segmentation = _resolve_saa_segmentation(config)
+    samples = load_saa_samples(outer_zip)
+    segmented: List[SAASegmentSample] = []
+    audio_cache: Dict[str, tuple[torch.Tensor, int]] = {}
+    for sample in samples:
+        waveform, sr = _load_saa_waveform_cached(outer_zip, sample.filename, audio_cache)
+        segmented.extend(
+            segment_saa_recording(
+                sample=sample,
+                waveform=waveform,
+                sampling_rate=sr,
+                min_duration_sec=saa_segmentation.min_sec,
+                max_duration_sec=saa_segmentation.max_sec,
+                merge_gap_sec=saa_segmentation.merge_gap_sec,
+                top_db=saa_segmentation.top_db,
+            )
+        )
+    return segmented
 
 
 def _prepare_samples(config: SpeakerStabilityConfig, outer_zip: str):
     if config.dataset == "l2arctic":
         samples = list_l2arctic_samples(outer_zip)
     else:
-        samples = load_saa_samples(outer_zip)
+        samples = _prepare_saa_segmented_samples(config, outer_zip)
 
-    by_speaker: Dict[str, List[L2ArcticSample | SAASample]] = {}
+    by_speaker: Dict[str, List[L2ArcticSample | SAASample | SAASegmentSample]] = {}
     for sample in samples:
         by_speaker.setdefault(sample.speaker_id, []).append(sample)
 
@@ -262,6 +350,7 @@ def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
     logger.info("Running speaker stability for {} speakers", len(speakers))
 
     for speaker_id in speakers:
+        audio_cache: Dict[str, tuple[torch.Tensor, int]] = {}
         samples = order_utterances(
             by_speaker[speaker_id], config.ordering, config.random_seed
         )
@@ -277,7 +366,7 @@ def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
         ]
 
         for sample in samples:
-            waveform, sr = _load_audio(outer_zip, sample)
+            waveform, sr = _load_audio(outer_zip, sample, audio_cache)
             durations.append(float(len(waveform)) / float(sr))
 
             for rep in runtimes:
@@ -465,9 +554,61 @@ def parse_args(argv: Sequence[str]) -> SpeakerStabilityConfig:
         default=2,
         help="Number of consecutive plateau steps required.",
     )
+    parser.add_argument(
+        "--saa-segment-min-sec",
+        type=float,
+        default=None,
+        help="Minimum voiced segment duration for SAA segmentation.",
+    )
+    parser.add_argument(
+        "--saa-segment-max-sec",
+        type=float,
+        default=None,
+        help="Maximum voiced segment duration for SAA segmentation.",
+    )
+    parser.add_argument(
+        "--saa-merge-gap-sec",
+        type=float,
+        default=None,
+        help="Merge adjacent voiced regions if silence gap is below this value.",
+    )
+    parser.add_argument(
+        "--saa-segment-top-db",
+        type=int,
+        default=None,
+        help="Silence threshold (dB) used by librosa.effects.split for SAA.",
+    )
 
     parsed = parser.parse_args(list(argv))
     ks = [int(k.strip()) for k in parsed.ks.split(",") if k.strip()]
+    saa_segmentation: SAASegmentationConfig | None = None
+    if (
+        parsed.saa_segment_min_sec is not None
+        or parsed.saa_segment_max_sec is not None
+        or parsed.saa_merge_gap_sec is not None
+        or parsed.saa_segment_top_db is not None
+    ):
+        saa_segmentation = SAASegmentationConfig(
+            min_sec=(
+                parsed.saa_segment_min_sec
+                if parsed.saa_segment_min_sec is not None
+                else 2.0
+            ),
+            max_sec=(
+                parsed.saa_segment_max_sec
+                if parsed.saa_segment_max_sec is not None
+                else 8.0
+            ),
+            merge_gap_sec=(
+                parsed.saa_merge_gap_sec
+                if parsed.saa_merge_gap_sec is not None
+                else 0.25
+            ),
+            top_db=(
+                parsed.saa_segment_top_db if parsed.saa_segment_top_db is not None else 30
+            ),
+        )
+
     config = SpeakerStabilityConfig(
         dataset=parsed.dataset,
         outer_zip=parsed.outer_zip,
@@ -482,6 +623,7 @@ def parse_args(argv: Sequence[str]) -> SpeakerStabilityConfig:
         stability_threshold=parsed.stability_threshold,
         stability_epsilon=parsed.stability_epsilon,
         stability_consecutive=parsed.stability_consecutive,
+        saa_segmentation=saa_segmentation,
     )
     if not config.representations:
         config.representations = _default_representations()

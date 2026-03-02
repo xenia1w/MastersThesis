@@ -26,6 +26,24 @@ class SAASample(BaseModel):
     birthplace: Optional[str] = None
 
 
+class SAASegmentSample(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    speaker_id: str
+    filename: str
+    segment_id: str
+    start_sample: int
+    end_sample: int
+    sampling_rate: int
+    duration_seconds: float
+    native_language: str
+    sex: Optional[str] = None
+    country: Optional[str] = None
+    age: Optional[int] = None
+    age_onset: Optional[int] = None
+    birthplace: Optional[str] = None
+
+
 class SAAMetadata(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
