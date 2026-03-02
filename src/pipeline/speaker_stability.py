@@ -10,6 +10,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple, TypeVar
 
 import torch
 from loguru import logger
+from tqdm import tqdm
 
 from src.data.audio_utils import load_l2arctic_wav, load_saa_mp3
 from src.data.l2arctic_utils import list_l2arctic_samples
@@ -51,7 +52,7 @@ def _resolve_outer_zip(config: SpeakerStabilityConfig) -> str:
 def _resolve_save_root(config: SpeakerStabilityConfig) -> str:
     if config.save_root is not None:
         return config.save_root
-    return f"data/processed/{config.dataset}_speaker_stability"
+    return f"data/processed/stability/{config.dataset}_speaker_stability"
 
 
 def _resolve_cache_root(config: SpeakerStabilityConfig) -> str:
@@ -300,6 +301,7 @@ def _encode_speaker_samples(
     speaker_samples: List[L2ArcticSample | SAASample | SAASegmentSample],
     runtimes: List[RepresentationRuntime],
     config: SpeakerStabilityConfig,
+    speaker_id: str,
 ) -> tuple[List[str], List[float], List[RepresentationEmbeddings]]:
     audio_cache: Dict[str, tuple[torch.Tensor, int]] = {}
     ordered_ids = [_utterance_id(sample) for sample in speaker_samples]
@@ -310,7 +312,12 @@ def _encode_speaker_samples(
     ]
     by_name = {entry.name: entry for entry in per_rep_embeddings}
 
-    for sample in speaker_samples:
+    for sample in tqdm(
+        speaker_samples,
+        desc=f"Speaker {speaker_id} utterances",
+        unit="utt",
+        leave=False,
+    ):
         waveform, sr = _load_audio(outer_zip, sample, audio_cache)
         durations.append(float(len(waveform)) / float(sr))
 
@@ -466,7 +473,7 @@ def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
 
     logger.info("Running speaker stability for {} speakers", len(speakers))
 
-    for speaker_id in speakers:
+    for speaker_id in tqdm(speakers, desc="Stability speakers", unit="spk"):
         samples = order_utterances(
             by_speaker[speaker_id], config.ordering, config.random_seed
         )
@@ -479,6 +486,7 @@ def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
             speaker_samples=samples,
             runtimes=runtimes,
             config=config,
+            speaker_id=speaker_id,
         )
         cumulative_seconds = _compute_cumulative_seconds(durations)
         per_rep_by_name = {entry.name: entry.embeddings for entry in per_rep_embeddings}
