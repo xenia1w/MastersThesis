@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import random
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Literal, Sequence, Tuple, TypeVar
+from typing import Dict, Iterable, List, Sequence, Tuple, TypeVar
 
 import torch
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field
+from tqdm import tqdm
 
 from src.data.audio_utils import load_l2arctic_wav, load_saa_mp3
 from src.data.l2arctic_utils import list_l2arctic_samples
@@ -25,96 +26,19 @@ from src.features.incremental_embeddings import (
 from src.features.utterance_embedding import mean_std_pool
 from src.metrics.similarity import cosine
 from src.models.prosody import L2ArcticSample, SAASample, SAASegmentSample
+from src.models.speaker_stability import (
+    RepresentationConfig,
+    RepresentationEmbeddings,
+    RepresentationRuntime,
+    SAASegmentationConfig,
+    SpeakerStabilityConfig,
+    SpeakerStabilityCsvRow,
+    SpeakerStabilityPayload,
+    SpeakerStabilitySummary,
+)
 from src.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
-DatasetName = Literal["l2arctic", "saa"]
-EmbeddingType = Literal["mean_std", "xvector"]
 SampleT = TypeVar("SampleT", L2ArcticSample, SAASample, SAASegmentSample)
-
-
-class RepresentationConfig(BaseModel):
-    name: str
-    model_name: str
-    embedding_type: EmbeddingType
-
-
-class RepresentationRuntime(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    config: RepresentationConfig
-    xvector_encoder: WavLMEncoder | None = None
-    base_encoder: WavLMBaseEncoder | None = None
-
-
-class RepresentationEmbeddings(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    name: str
-    embeddings: List[torch.Tensor]
-
-
-class SpeakerStabilityPayload(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    dataset: DatasetName
-    speaker_id: str
-    representation: str
-    model_name: str
-    ordering: str
-    random_seed: int
-    ks: List[int]
-    ordered_utterance_ids: List[str]
-    num_utterances: int
-    total_seconds: float
-    total_seconds_by_k: Dict[str, float]
-    embeddings_by_k: Dict[int | str, torch.Tensor]
-    cosine_to_full: Dict[str, float]
-    stability_k: int | None
-    stability_seconds: float | None
-    stability_threshold: float
-    stability_epsilon: float
-    stability_consecutive: int
-
-
-class SpeakerStabilitySummary(BaseModel):
-    speaker_id: str
-    representation: str
-    model_name: str
-    ks: List[int]
-    cosine_to_full: Dict[str, float]
-    total_seconds_by_k: Dict[str, float]
-    stability_k: int | None
-    stability_seconds: float | None
-    stability_threshold: float
-    stability_epsilon: float
-    stability_consecutive: int
-
-
-class SAASegmentationConfig(BaseModel):
-    min_sec: float = 2.0
-    max_sec: float = 8.0
-    merge_gap_sec: float = 0.25
-    top_db: int = 30
-
-
-class SpeakerStabilityConfig(BaseModel):
-    dataset: DatasetName = Field(..., description="Dataset to run: l2arctic or saa.")
-    outer_zip: str | None = Field(default=None, description="Path to dataset zip.")
-    save_root: str | None = Field(default=None, description="Output directory.")
-    ordering: Literal["chronological", "random"] = Field(
-        default="chronological", description="Utterance ordering strategy."
-    )
-    random_seed: int = Field(default=1337, description="Random seed for ordering.")
-    ks: List[int] = Field(default_factory=lambda: [1, 2, 3, 5, 10])
-    representations: List[RepresentationConfig] = Field(default_factory=list)
-    max_speakers: int | None = None
-    max_utterances_per_speaker: int | None = None
-    use_cached_utterances: bool = True
-    utterance_cache_root: str | None = None
-    stability_threshold: float = 0.95
-    stability_epsilon: float = 0.002
-    stability_consecutive: int = 2
-    saa_segmentation: SAASegmentationConfig | None = None
 
 
 def _resolve_outer_zip(config: SpeakerStabilityConfig) -> str:
@@ -128,7 +52,7 @@ def _resolve_outer_zip(config: SpeakerStabilityConfig) -> str:
 def _resolve_save_root(config: SpeakerStabilityConfig) -> str:
     if config.save_root is not None:
         return config.save_root
-    return f"data/processed/{config.dataset}_speaker_stability"
+    return f"data/processed/stability/{config.dataset}_speaker_stability"
 
 
 def _resolve_cache_root(config: SpeakerStabilityConfig) -> str:
@@ -319,12 +243,20 @@ def _prepare_samples(config: SpeakerStabilityConfig, outer_zip: str):
     return by_speaker, speakers
 
 
-def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
-    outer_zip = _resolve_outer_zip(config)
-    save_root = Path(_resolve_save_root(config))
-    save_root.mkdir(parents=True, exist_ok=True)
-    cache_root = Path(_resolve_cache_root(config))
+def _write_csv_rows(
+    save_root: Path,
+    rows: List[SpeakerStabilityCsvRow],
+) -> None:
+    out_path = save_root / "speaker_stability_all.csv"
+    headers = list(SpeakerStabilityCsvRow.model_fields.keys())
+    with out_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row.model_dump())
 
+
+def _build_runtimes(config: SpeakerStabilityConfig) -> List[RepresentationRuntime]:
     representations = (
         config.representations if config.representations else _default_representations()
     )
@@ -344,138 +276,254 @@ def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
                     base_encoder=WavLMBaseEncoder(model_name=rep.model_name),
                 )
             )
+    return runtimes
+
+
+
+def _encode_single_embedding(
+    waveform: torch.Tensor,
+    sr: int,
+    runtime: RepresentationRuntime,
+) -> torch.Tensor:
+    if runtime.config.embedding_type == "xvector":
+        if runtime.xvector_encoder is None:
+            raise RuntimeError(f"Missing xvector encoder for {runtime.config.name}")
+        return runtime.xvector_encoder.encode_utterance(waveform, sr)
+    if runtime.base_encoder is None:
+        raise RuntimeError(f"Missing base encoder for {runtime.config.name}")
+    frames = runtime.base_encoder.encode_frames(waveform, sr)
+    return mean_std_pool(frames)
+
+
+def _encode_speaker_samples(
+    outer_zip: str,
+    cache_root: Path,
+    speaker_samples: List[L2ArcticSample | SAASample | SAASegmentSample],
+    runtimes: List[RepresentationRuntime],
+    config: SpeakerStabilityConfig,
+    speaker_id: str,
+) -> tuple[List[str], List[float], List[RepresentationEmbeddings]]:
+    audio_cache: Dict[str, tuple[torch.Tensor, int]] = {}
+    ordered_ids = [_utterance_id(sample) for sample in speaker_samples]
+    durations: List[float] = []
+    per_rep_embeddings: List[RepresentationEmbeddings] = [
+        RepresentationEmbeddings(name=runtime.config.name, embeddings=[])
+        for runtime in runtimes
+    ]
+    by_name = {entry.name: entry for entry in per_rep_embeddings}
+
+    for sample in tqdm(
+        speaker_samples,
+        desc=f"Speaker {speaker_id} utterances",
+        unit="utt",
+        leave=False,
+    ):
+        waveform, sr = _load_audio(outer_zip, sample, audio_cache)
+        durations.append(float(len(waveform)) / float(sr))
+
+        for runtime in runtimes:
+            embedding = None
+            if config.use_cached_utterances:
+                embedding = _load_cached_embedding(cache_root, sample, runtime.config)
+            if embedding is None:
+                embedding = _encode_single_embedding(waveform, sr, runtime)
+            by_name[runtime.config.name].embeddings.append(
+                normalize_embedding(embedding).cpu()
+            )
+
+    return ordered_ids, durations, per_rep_embeddings
+
+
+def _compute_cumulative_seconds(durations: List[float]) -> List[float]:
+    cumulative_seconds: List[float] = []
+    total = 0.0
+    for duration in durations:
+        total += duration
+        cumulative_seconds.append(total)
+    return cumulative_seconds
+
+
+def _save_representation_artifacts(
+    save_root: Path,
+    speaker_id: str,
+    runtime: RepresentationRuntime,
+    payload: SpeakerStabilityPayload,
+    summary: SpeakerStabilitySummary,
+) -> None:
+    speaker_dir = save_root / speaker_id
+    speaker_dir.mkdir(parents=True, exist_ok=True)
+    out_path = speaker_dir / f"{runtime.config.name}.pt"
+    torch.save(payload.model_dump(), out_path)
+    summary_path = speaker_dir / f"{runtime.config.name}.json"
+    summary_path.write_text(json.dumps(summary.model_dump(), indent=2), encoding="utf-8")
+
+
+def _append_csv_rows_from_summary(
+    rows: List[SpeakerStabilityCsvRow],
+    summary: SpeakerStabilitySummary,
+    config: SpeakerStabilityConfig,
+    speaker_id: str,
+    runtime: RepresentationRuntime,
+    num_utterances: int,
+    total_seconds: float,
+) -> None:
+    for k_str, cosine_value in summary.cosine_to_full.items():
+        k = int(k_str)
+        cumulative_seconds_value = summary.total_seconds_by_k.get(k_str)
+        if cumulative_seconds_value is None:
+            continue
+        rows.append(
+            SpeakerStabilityCsvRow(
+                speaker_id=speaker_id,
+                dataset=config.dataset,
+                representation=runtime.config.name,
+                model_name=runtime.config.model_name,
+                ordering=config.ordering,
+                random_seed=config.random_seed,
+                k=k,
+                cosine_to_full=cosine_value,
+                cumulative_seconds=cumulative_seconds_value,
+                num_utterances=num_utterances,
+                total_seconds=total_seconds,
+                stability_k=summary.stability_k,
+                stability_seconds=summary.stability_seconds,
+                stability_threshold=config.stability_threshold,
+                stability_epsilon=config.stability_epsilon,
+                stability_consecutive=config.stability_consecutive,
+            )
+        )
+
+
+def _process_representation(
+    rep_embeddings: List[torch.Tensor],
+    runtime: RepresentationRuntime,
+    config: SpeakerStabilityConfig,
+    speaker_id: str,
+    ordered_ids: List[str],
+    cumulative_seconds: List[float],
+) -> tuple[SpeakerStabilityPayload, SpeakerStabilitySummary] | None:
+    centroids = running_centroids(rep_embeddings)
+    if not centroids:
+        return None
+    full = centroids[-1]
+
+    selected = select_k(centroids, config.ks)
+    cosines_by_k = cosine_to_full(selected, full)
+    cosines_all = [cosine(centroid, full) for centroid in centroids]
+
+    stable_k = stability_point(
+        cosines_all,
+        threshold=config.stability_threshold,
+        epsilon=config.stability_epsilon,
+        consecutive=config.stability_consecutive,
+    )
+    stable_seconds = cumulative_seconds[stable_k - 1] if stable_k is not None else None
+
+    total_seconds_by_k = {
+        str(k): cumulative_seconds[k - 1]
+        for k in selected.keys()
+        if k - 1 < len(cumulative_seconds)
+    }
+
+    payload = SpeakerStabilityPayload(
+        dataset=config.dataset,
+        speaker_id=speaker_id,
+        representation=runtime.config.name,
+        model_name=runtime.config.model_name,
+        ordering=config.ordering,
+        random_seed=config.random_seed,
+        ks=list(config.ks),
+        ordered_utterance_ids=ordered_ids,
+        num_utterances=len(ordered_ids),
+        total_seconds=cumulative_seconds[-1] if cumulative_seconds else 0.0,
+        total_seconds_by_k=total_seconds_by_k,
+        embeddings_by_k=selected | {"full": full},
+        cosine_to_full={str(k): v for k, v in cosines_by_k.items()},
+        stability_k=stable_k,
+        stability_seconds=stable_seconds,
+        stability_threshold=config.stability_threshold,
+        stability_epsilon=config.stability_epsilon,
+        stability_consecutive=config.stability_consecutive,
+    )
+    summary = SpeakerStabilitySummary(
+        speaker_id=speaker_id,
+        representation=runtime.config.name,
+        model_name=runtime.config.model_name,
+        ks=list(config.ks),
+        cosine_to_full={str(k): v for k, v in cosines_by_k.items()},
+        total_seconds_by_k=total_seconds_by_k,
+        stability_k=stable_k,
+        stability_seconds=stable_seconds,
+        stability_threshold=config.stability_threshold,
+        stability_epsilon=config.stability_epsilon,
+        stability_consecutive=config.stability_consecutive,
+    )
+    return payload, summary
+
+
+def run_speaker_stability(config: SpeakerStabilityConfig) -> None:
+    outer_zip = _resolve_outer_zip(config)
+    save_root = Path(_resolve_save_root(config))
+    save_root.mkdir(parents=True, exist_ok=True)
+    cache_root = Path(_resolve_cache_root(config))
+    runtimes = _build_runtimes(config)
 
     by_speaker, speakers = _prepare_samples(config, outer_zip)
+    csv_rows: List[SpeakerStabilityCsvRow] = []
 
     logger.info("Running speaker stability for {} speakers", len(speakers))
 
-    for speaker_id in speakers:
-        audio_cache: Dict[str, tuple[torch.Tensor, int]] = {}
+    for speaker_id in tqdm(speakers, desc="Stability speakers", unit="spk"):
         samples = order_utterances(
             by_speaker[speaker_id], config.ordering, config.random_seed
         )
         if config.max_utterances_per_speaker is not None:
             samples = samples[: config.max_utterances_per_speaker]
 
-        ordered_ids = [_utterance_id(sample) for sample in samples]
-        durations: List[float] = []
+        ordered_ids, durations, per_rep_embeddings = _encode_speaker_samples(
+            outer_zip=outer_zip,
+            cache_root=cache_root,
+            speaker_samples=samples,
+            runtimes=runtimes,
+            config=config,
+            speaker_id=speaker_id,
+        )
+        cumulative_seconds = _compute_cumulative_seconds(durations)
+        per_rep_by_name = {entry.name: entry.embeddings for entry in per_rep_embeddings}
 
-        per_rep_embeddings: List[RepresentationEmbeddings] = [
-            RepresentationEmbeddings(name=rep.config.name, embeddings=[])
-            for rep in runtimes
-        ]
-
-        for sample in samples:
-            waveform, sr = _load_audio(outer_zip, sample, audio_cache)
-            durations.append(float(len(waveform)) / float(sr))
-
-            for rep in runtimes:
-                embedding = None
-                if config.use_cached_utterances:
-                    embedding = _load_cached_embedding(cache_root, sample, rep.config)
-
-                if embedding is None:
-                    if rep.config.embedding_type == "xvector":
-                        if rep.xvector_encoder is None:
-                            raise RuntimeError(
-                                f"Missing xvector encoder for {rep.config.name}"
-                            )
-                        embedding = rep.xvector_encoder.encode_utterance(waveform, sr)
-                    else:
-                        if rep.base_encoder is None:
-                            raise RuntimeError(
-                                f"Missing base encoder for {rep.config.name}"
-                            )
-                        frames = rep.base_encoder.encode_frames(waveform, sr)
-                        embedding = mean_std_pool(frames)
-
-                for entry in per_rep_embeddings:
-                    if entry.name == rep.config.name:
-                        entry.embeddings.append(normalize_embedding(embedding).cpu())
-                        break
-
-        cumulative_seconds = []
-        total = 0.0
-        for dur in durations:
-            total += dur
-            cumulative_seconds.append(total)
-
-        for rep in runtimes:
-            rep_embeddings = next(
-                entry.embeddings
-                for entry in per_rep_embeddings
-                if entry.name == rep.config.name
-            )
-            centroids = running_centroids(rep_embeddings)
-            if not centroids:
-                continue
-            full = centroids[-1]
-
-            selected = select_k(centroids, config.ks)
-            cosines_by_k = cosine_to_full(selected, full)
-            cosines_all = [cosine(c, full) for c in centroids]
-
-            stable_k = stability_point(
-                cosines_all,
-                threshold=config.stability_threshold,
-                epsilon=config.stability_epsilon,
-                consecutive=config.stability_consecutive,
-            )
-            stable_seconds = (
-                cumulative_seconds[stable_k - 1] if stable_k is not None else None
-            )
-
-            total_seconds_by_k = {
-                str(k): cumulative_seconds[k - 1]
-                for k in selected.keys()
-                if k - 1 < len(cumulative_seconds)
-            }
-
-            payload = SpeakerStabilityPayload(
-                dataset=config.dataset,
+        for runtime in runtimes:
+            result = _process_representation(
+                rep_embeddings=per_rep_by_name[runtime.config.name],
+                runtime=runtime,
+                config=config,
                 speaker_id=speaker_id,
-                representation=rep.config.name,
-                model_name=rep.config.model_name,
-                ordering=config.ordering,
-                random_seed=config.random_seed,
-                ks=list(config.ks),
-                ordered_utterance_ids=ordered_ids,
+                ordered_ids=ordered_ids,
+                cumulative_seconds=cumulative_seconds,
+            )
+            if result is None:
+                continue
+            payload, summary = result
+            _save_representation_artifacts(
+                save_root=save_root,
+                speaker_id=speaker_id,
+                runtime=runtime,
+                payload=payload,
+                summary=summary,
+            )
+            _append_csv_rows_from_summary(
+                rows=csv_rows,
+                summary=summary,
+                config=config,
+                speaker_id=speaker_id,
+                runtime=runtime,
                 num_utterances=len(samples),
                 total_seconds=cumulative_seconds[-1] if cumulative_seconds else 0.0,
-                total_seconds_by_k=total_seconds_by_k,
-                embeddings_by_k=selected | {"full": full},
-                cosine_to_full={str(k): v for k, v in cosines_by_k.items()},
-                stability_k=stable_k,
-                stability_seconds=stable_seconds,
-                stability_threshold=config.stability_threshold,
-                stability_epsilon=config.stability_epsilon,
-                stability_consecutive=config.stability_consecutive,
-            )
-
-            speaker_dir = save_root / speaker_id
-            speaker_dir.mkdir(parents=True, exist_ok=True)
-            out_path = speaker_dir / f"{rep.config.name}.pt"
-            torch.save(payload.model_dump(), out_path)
-
-            summary = SpeakerStabilitySummary(
-                speaker_id=speaker_id,
-                representation=rep.config.name,
-                model_name=rep.config.model_name,
-                ks=list(config.ks),
-                cosine_to_full={str(k): v for k, v in cosines_by_k.items()},
-                total_seconds_by_k=total_seconds_by_k,
-                stability_k=stable_k,
-                stability_seconds=stable_seconds,
-                stability_threshold=config.stability_threshold,
-                stability_epsilon=config.stability_epsilon,
-                stability_consecutive=config.stability_consecutive,
-            )
-            summary_path = speaker_dir / f"{rep.config.name}.json"
-            summary_path.write_text(
-                json.dumps(summary.model_dump(), indent=2), encoding="utf-8"
             )
 
         logger.info("Saved stability outputs for speaker {}", speaker_id)
+
+    _write_csv_rows(save_root=save_root, rows=csv_rows)
+    logger.info("Saved aggregated CSV to {}", save_root / "speaker_stability_all.csv")
 
 
 def parse_args(argv: Sequence[str]) -> SpeakerStabilityConfig:
