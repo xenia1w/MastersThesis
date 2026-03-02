@@ -7,6 +7,7 @@ dependencies = [
     "just>=0.8.165",
     "librosa>=0.11.0",
     "loguru>=0.7.3",
+    "matplotlib>=3.10.1",
     "numpy>=2.4.2",
     "pydantic>=2.11.0",
     "soundfile>=0.13.1",
