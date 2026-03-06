@@ -5,7 +5,7 @@ import csv
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Literal, Sequence
+from typing import Dict, List, Literal, Sequence, cast
 
 import librosa
 import numpy as np
@@ -105,7 +105,25 @@ def _load_manifest(csv_path: Path) -> List[PerturbationRow]:
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for raw in reader:
-            rows.append(PerturbationRow(**raw))
+            dataset_raw = (raw.get("dataset") or "").strip()
+            if dataset_raw not in {"l2arctic", "saa"}:
+                raise ValueError(f"Invalid dataset value in manifest: {dataset_raw}")
+            dataset = cast(DatasetName, dataset_raw)
+
+            rows.append(
+                PerturbationRow(
+                    dataset=dataset,
+                    speaker_id=(raw.get("speaker_id") or "").strip(),
+                    utterance_id=(raw.get("utterance_id") or "").strip(),
+                    variant=(raw.get("variant") or "").strip(),
+                    source=(raw.get("source") or "").strip(),
+                    output_path=(raw.get("output_path") or "").strip(),
+                    sampling_rate=int(raw.get("sampling_rate") or "0"),
+                    num_samples=int(raw.get("num_samples") or "0"),
+                    duration_seconds=float(raw.get("duration_seconds") or "0.0"),
+                    params_json=(raw.get("params_json") or "{}").strip(),
+                )
+            )
     return rows
 
 
@@ -310,4 +328,3 @@ def main(argv: Sequence[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(argv=sys.argv[1:]))
-
