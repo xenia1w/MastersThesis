@@ -12,21 +12,21 @@ import torch
 from loguru import logger
 from tqdm import tqdm
 
-from src.data.audio_utils import load_l2arctic_wav, load_saa_mp3
-from src.data.l2arctic_utils import list_l2arctic_samples
-from src.data.saa_segmentation import segment_saa_recording
-from src.data.saa_utils import load_saa_samples
-from src.features.incremental_embeddings import (
+from src.prosodic_feature_extraction.data.audio_utils import load_l2arctic_wav, load_saa_mp3
+from src.prosodic_feature_extraction.data.l2arctic_utils import list_l2arctic_samples
+from src.prosodic_feature_extraction.data.saa_segmentation import segment_saa_recording
+from src.prosodic_feature_extraction.data.saa_utils import load_saa_samples
+from src.prosodic_feature_extraction.features.incremental_embeddings import (
     cosine_to_full,
     normalize_embedding,
     running_centroids,
     select_k,
     stability_point,
 )
-from src.features.utterance_embedding import mean_std_pool
-from src.metrics.similarity import cosine
-from src.models.prosody import L2ArcticSample, SAASample, SAASegmentSample
-from src.models.speaker_stability import (
+from src.prosodic_feature_extraction.features.utterance_embedding import mean_std_pool
+from src.prosodic_feature_extraction.metrics.similarity import cosine
+from src.prosodic_feature_extraction.models.prosody import L2ArcticSample, SAASample, SAASegmentSample
+from src.prosodic_feature_extraction.models.speaker_stability import (
     RepresentationConfig,
     RepresentationEmbeddings,
     RepresentationRuntime,
@@ -36,7 +36,7 @@ from src.models.speaker_stability import (
     SpeakerStabilityPayload,
     SpeakerStabilitySummary,
 )
-from src.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
+from src.prosodic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 SampleT = TypeVar("SampleT", L2ArcticSample, SAASample, SAASegmentSample)
 

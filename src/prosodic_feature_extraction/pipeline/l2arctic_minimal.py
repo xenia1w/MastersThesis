@@ -7,13 +7,13 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from loguru import logger
 
-from src.controllers.l2arctic_minimal_controller import L2ArcticMinimalController
-from src.metrics.similarity import (
+from src.prosodic_feature_extraction.controllers.l2arctic_minimal_controller import L2ArcticMinimalController
+from src.prosodic_feature_extraction.metrics.similarity import (
     cosine,
     frame_level_similarity_naive,
     frame_level_similarity_topk,
 )
-from src.models.prosody import L2ArcticSample, ProsodyEmbedding
+from src.prosodic_feature_extraction.models.prosody import L2ArcticSample, ProsodyEmbedding
 
 
 def default_samples() -> List[L2ArcticSample]:

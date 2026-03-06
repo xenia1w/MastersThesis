@@ -2,10 +2,23 @@ from __future__ import annotations
 
 from typing import Dict, List, Literal
 
+import pydantic
 import torch
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
-from src.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
+if pydantic.VERSION.startswith("2."):
+    from pydantic import ConfigDict
+
+    class TensorModel(BaseModel):
+        model_config = ConfigDict(arbitrary_types_allowed=True)
+
+else:
+
+    class TensorModel(BaseModel):
+        class Config:
+            arbitrary_types_allowed = True
+
+from src.prosodic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 DatasetName = Literal["l2arctic", "saa"]
 EmbeddingType = Literal["mean_std", "xvector"]
@@ -17,23 +30,20 @@ class RepresentationConfig(BaseModel):
     embedding_type: EmbeddingType
 
 
-class RepresentationRuntime(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+class RepresentationRuntime(TensorModel):
 
     config: RepresentationConfig
     xvector_encoder: WavLMEncoder | None = None
     base_encoder: WavLMBaseEncoder | None = None
 
 
-class RepresentationEmbeddings(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+class RepresentationEmbeddings(TensorModel):
 
     name: str
     embeddings: List[torch.Tensor]
 
 
-class SpeakerStabilityPayload(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+class SpeakerStabilityPayload(TensorModel):
 
     dataset: DatasetName
     speaker_id: str

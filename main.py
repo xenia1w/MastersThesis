@@ -4,7 +4,7 @@ import argparse
 import sys
 from typing import Sequence
 
-from src.pipeline.prosody_pipeline import ProsodyPipelineConfig, run_prosody_pipeline
+from src.prosodic_feature_extraction.pipeline.prosody_pipeline import ProsodyPipelineConfig, run_prosody_pipeline
 
 
 def parse_args(argv: Sequence[str]) -> ProsodyPipelineConfig:

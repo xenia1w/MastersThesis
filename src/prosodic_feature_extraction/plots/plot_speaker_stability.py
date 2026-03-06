@@ -240,7 +240,11 @@ def main(argv: Sequence[str]) -> int:
 
     rows = _load_rows(csv_path)
     dataset = rows[0]["dataset"] if rows else "unknown"
-    out_dir = Path(args.out_dir) if args.out_dir else Path("src") / "plots" / dataset
+    out_dir = (
+        Path(args.out_dir)
+        if args.out_dir
+        else Path("src") / "prosodic_feature_extraction" / "plots" / dataset
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     formats = [fmt.strip().lower() for fmt in str(args.formats).split(",") if fmt.strip()]
     x_max_seconds = float(args.x_max_seconds)

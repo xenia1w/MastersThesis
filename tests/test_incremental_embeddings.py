@@ -3,7 +3,7 @@ import unittest
 
 import torch
 
-from src.features.incremental_embeddings import (
+from src.prosodic_feature_extraction.features.incremental_embeddings import (
     running_centroids,
     select_k,
     stability_point,

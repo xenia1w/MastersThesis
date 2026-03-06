@@ -7,14 +7,14 @@ import torch.nn.functional as F
 from loguru import logger
 from tqdm import tqdm
 
-from src.controllers.saa_minimal_controller import SAAMinimalController
-from src.data.saa_utils import load_saa_samples
-from src.metrics.similarity import (
+from src.prosodic_feature_extraction.controllers.saa_minimal_controller import SAAMinimalController
+from src.prosodic_feature_extraction.data.saa_utils import load_saa_samples
+from src.prosodic_feature_extraction.metrics.similarity import (
     cosine,
     frame_level_similarity_naive,
     frame_level_similarity_topk,
 )
-from src.models.prosody import ProsodyEmbedding, SAASample
+from src.prosodic_feature_extraction.models.prosody import ProsodyEmbedding, SAASample
 
 
 def prepare_sample_list(

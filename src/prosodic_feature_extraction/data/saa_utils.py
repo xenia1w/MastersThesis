@@ -5,7 +5,7 @@ import io
 import zipfile
 from typing import List, Optional
 
-from src.models.prosody import SAASample
+from src.prosodic_feature_extraction.models.prosody import SAASample
 
 
 def _parse_int(value: str | None) -> Optional[int]:

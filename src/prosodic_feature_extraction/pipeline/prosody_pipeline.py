@@ -4,10 +4,10 @@ from typing import Iterable, List, Literal
 
 from pydantic import BaseModel, Field
 
-from src.data.saa_utils import load_saa_samples
-from src.models.prosody import L2ArcticSample, ProsodyEmbedding, SAASample
-from src.pipeline.l2arctic_minimal import default_samples, run_l2arctic_minimal
-from src.pipeline.saa_minimal import run_saa_minimal
+from src.prosodic_feature_extraction.data.saa_utils import load_saa_samples
+from src.prosodic_feature_extraction.models.prosody import L2ArcticSample, ProsodyEmbedding, SAASample
+from src.prosodic_feature_extraction.pipeline.l2arctic_minimal import default_samples, run_l2arctic_minimal
+from src.prosodic_feature_extraction.pipeline.saa_minimal import run_saa_minimal
 
 DatasetName = Literal["l2arctic", "saa"]
 SampleInput = Iterable[L2ArcticSample] | Iterable[SAASample] | None
