@@ -20,7 +20,9 @@
 
 #SBATCH --account=qu
 
-#SBATCH --chdir=/home/users/x/xenia1w
+#SBATCH --chdir=/home/users/x/xenia1w/MastersThesis
+#SBATCH --output=/home/users/x/xenia1w/MastersThesis/logs/baseline_%j.out
+#SBATCH --error=/home/users/x/xenia1w/MastersThesis/logs/baseline_%j.err
 
 module load cuda/12.8
 
