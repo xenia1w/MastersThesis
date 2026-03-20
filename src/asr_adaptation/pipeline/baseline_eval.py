@@ -95,6 +95,9 @@ def run_saa_baseline(
     for sample in samples:
         logger.info(f"SAA | speaker {sample.speaker_id} ({sample.native_language})")
         waveform, _ = load_saa_mp3(saa_zip, sample.filename)
+        if waveform.numel() < 400:
+            logger.warning(f"SAA | speaker {sample.speaker_id} — audio too short ({waveform.numel()} samples), skipping")
+            continue
         hypothesis = transcribe(waveform, processor, model, device)
         wer = compute_wer([SAA_REFERENCE], [hypothesis])
         rows.append(
