@@ -64,7 +64,6 @@ logs/
 
 # Datasets
 *.zip
-data/cache
 *.csv
 
 # Model checkpoints
@@ -86,4 +85,4 @@ runs/   # tensorboard
 *.swp
 *.swo
 *.tmp
-/data/processed/
+/data

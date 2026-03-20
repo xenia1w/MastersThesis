@@ -1,4 +1,4 @@
-name: ty-check
+name: test-suite
 
 on:
   push:
