@@ -12,7 +12,7 @@
 #SBATCH --time=04:00:00          # Adjust if needed — ~10 min per speaker
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:1
 #SBATCH --output=logs/baseline_%j.out
 #SBATCH --error=logs/baseline_%j.err
 
@@ -24,7 +24,8 @@
 #SBATCH --output=/home/users/x/xenia1w/MastersThesis/logs/baseline_%j.out
 #SBATCH --error=/home/users/x/xenia1w/MastersThesis/logs/baseline_%j.err
 
-module load cuda/12.8
+module load cuda/12.8 || true
+export CUDA_VISIBLE_DEVICES=""
 
 set -euo pipefail
 
