@@ -47,10 +47,11 @@ awk -F',' 'NR>1 {sum+=$6; count++} END {printf "Avg WER: %.3f (%d utterances)\n"
 
 ### 2. Per-Speaker LoRA Fine-Tuning (Ticket #5)
 
-*Not yet implemented — coming next.*
-
 Fine-tunes a speaker-specific LoRA adapter on their labeled utterances and
 measures adapted WER on a held-out test set.
+
+- Train/eval split: first 500 utterances (shuffled by seed) for training, last 100 held out
+- Saves LoRA weights + a per-utterance CSV with baseline and adapted WER side-by-side
 
 **Single speaker (local):**
 ```bash
@@ -61,27 +62,39 @@ uv run python -m src.asr_adaptation.pipeline.lora_train \
     --cache-dir     data/cache/huggingface
 ```
 
+Optional flags: `--n-train 100`, `--n-epochs 10`, `--seed 0`
+
 **All speakers in parallel (on cluster):**
 ```bash
 sbatch --array=0-17 src/asr_adaptation/slurm/run_lora_speaker.sh
 ```
 
 Output:
-- `data/processed/asr_adaptation/lora_weights/{speaker_id}/` — saved LoRA adapter
-- `data/processed/asr_adaptation/adaptation_results/l2arctic_adapted.csv`
+- `data/processed/asr_adaptation/lora_weights/{speaker_id}/` — saved LoRA adapter weights
+- `data/processed/asr_adaptation/adaptation_results/{speaker_id}.csv`
+
+CSV columns: `speaker_id, utterance_id, n_train, reference, hypothesis_baseline, hypothesis_adapted, wer_baseline, wer_adapted, wer_delta`
+
+**Quick sanity check after running:**
+```bash
+# Average baseline vs adapted WER for ABA
+awk -F',' 'NR>1 {b+=$7; a+=$8; c++} END {printf "Baseline: %.3f  Adapted: %.3f\n", b/c, a/c}' \
+    data/processed/asr_adaptation/adaptation_results/ABA.csv
+```
 
 ---
 
 ### 3. Data Size Sweep — RQ1.3 (Ticket #6)
 
-*Not yet implemented — coming next.*
+Trains LoRA on N utterances (N ∈ {1, 5, 10, 20, 50, 100, 200}), repeated across 3 seeds,
+to find how much data is needed before adaptation becomes effective.
 
-Trains LoRA on N utterances (varying N) to find how much data is needed
-before adaptation becomes effective. Answers RQ1.3.
+Each job handles one `(speaker, N, seed)` combination and writes its own CSV file,
+avoiding write conflicts when hundreds of jobs run simultaneously on the cluster.
 
-**Single (speaker, N, seed) locally:**
+**Single combination locally (good for testing):**
 ```bash
-uv run python -m src.asr_adaptation.pipeline.data_size_analysis \
+uv run python -m src.asr_adaptation.pipeline.data_size_analysis run \
     --speaker       ABA \
     --n-train       10 \
     --seed          0 \
@@ -90,12 +103,22 @@ uv run python -m src.asr_adaptation.pipeline.data_size_analysis \
     --cache-dir     data/cache/huggingface
 ```
 
+Output: `data/processed/asr_adaptation/data_size_curves/ABA_0010_seed0.csv`
+
 **Full sweep — 18 speakers × 7 N-values × 3 seeds = 378 jobs (on cluster):**
 ```bash
 sbatch --array=0-377 src/asr_adaptation/slurm/run_data_size.sh
 ```
 
-Output: `data/processed/asr_adaptation/data_size_curves/{speaker_id}_wer_vs_n.csv`
+**After all jobs finish — merge into per-speaker summary files:**
+```bash
+uv run python -m src.asr_adaptation.pipeline.data_size_analysis merge \
+    --output-dir data/processed/asr_adaptation/data_size_curves
+```
+
+Output per speaker: `data/processed/asr_adaptation/data_size_curves/{speaker_id}_wer_vs_n.csv`
+
+CSV columns: `speaker_id, n_train, seed, wer_baseline, wer_adapted, wer_delta`
 
 ---
 
@@ -158,7 +181,9 @@ rsync -avz username@cluster:~/MastersThesis/data/processed/asr_adaptation/ \
 uv run pytest tests/test_l2arctic_transcriptions.py \
                tests/test_wav2vec_lora.py \
                tests/test_wer.py \
-               tests/test_baseline_eval.py -v
+               tests/test_baseline_eval.py \
+               tests/test_lora_train.py \
+               tests/test_data_size_analysis.py -v
 
 # All tests in the whole project
 uv run pytest -v
@@ -180,8 +205,8 @@ src/asr_adaptation/
 │   └── wav2vec_lora.py             # build_lora_model(), save/load adapter
 ├── pipeline/
 │   ├── baseline_eval.py            # Ticket #4
-│   ├── lora_train.py               # Ticket #5 (TODO)
-│   ├── data_size_analysis.py       # Ticket #6 (TODO)
+│   ├── lora_train.py               # Ticket #5 ✓
+│   ├── data_size_analysis.py       # Ticket #6 ✓
 │   └── prosodic_correlation.py     # Ticket #7 (TODO)
 └── slurm/
     ├── run_baseline.sh
