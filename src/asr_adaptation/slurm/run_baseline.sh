@@ -20,6 +20,8 @@
 
 #SBATCH --account=qu
 
+#SBATCH --chdir=/home/users/x/xenia1w
+
 module load cuda/12.8
 
 set -euo pipefail
