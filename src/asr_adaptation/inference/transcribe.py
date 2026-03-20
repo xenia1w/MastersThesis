@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import torch
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+from transformers import Wav2Vec2Processor
 
 
 def transcribe(
     waveform: torch.Tensor,
     processor: Wav2Vec2Processor,
-    model: Wav2Vec2ForCTC,
+    model: torch.nn.Module,
     device: torch.device,
     chunk_length_s: int = 30,
     sampling_rate: int = 16000,
