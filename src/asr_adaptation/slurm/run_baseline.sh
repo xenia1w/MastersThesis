@@ -16,15 +16,11 @@
 #SBATCH --output=logs/baseline_%j.out
 #SBATCH --error=logs/baseline_%j.err
 
-# TODO: uncomment and set your cluster's partition
-# #SBATCH --partition=gpu
+#SBATCH --partition=gpu_short
 
-# TODO: uncomment if your cluster requires an account
-# #SBATCH --account=YOUR_ACCOUNT
+#SBATCH --account=qu
 
-# TODO: if your cluster uses environment modules for CUDA, load them here:
-# module load cuda/12.1
-# module load python/3.13
+module load cuda/12.8
 
 set -euo pipefail
 
