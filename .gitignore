@@ -78,6 +78,7 @@ checkpoints/
 outputs/
 results/
 runs/   # tensorboard
+/logs
 
 # =========================
 # Misc

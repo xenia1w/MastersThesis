@@ -24,11 +24,11 @@
 #SBATCH --output=/home/users/x/xenia1w/MastersThesis/logs/baseline_%j.out
 #SBATCH --error=/home/users/x/xenia1w/MastersThesis/logs/baseline_%j.err
 
-module load cuda/12.8
+module load cuda/12.4
 
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+PROJECT_DIR="/home/users/x/xenia1w/MastersThesis"
 cd "$PROJECT_DIR"
 
 # Point HuggingFace to the project's local model cache (avoids re-downloading)
