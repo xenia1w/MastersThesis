@@ -15,22 +15,23 @@
 # =============================================================================
 
 #SBATCH --job-name=asr-lora
-#SBATCH --time=06:00:00          # Adjust — ~30 min per speaker with 500 utterances
+#SBATCH --time=04:00:00          # gpu_short max walltime is 4h; ~30 min per speaker with 500 utterances
 #SBATCH --mem=24G
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:a100:1
+#SBATCH --array=0-17
 #SBATCH --output=logs/lora_%x_%j.out
 #SBATCH --error=logs/lora_%x_%j.err
 
-# TODO: uncomment and set your cluster's partition
-# #SBATCH --partition=gpu
+#SBATCH --partition=gpu
 
-# TODO: uncomment if your cluster requires an account
-# #SBATCH --account=YOUR_ACCOUNT
+#SBATCH --account=qu
 
-# TODO: if your cluster uses environment modules for CUDA, load them here:
-# module load cuda/12.1
-# module load python/3.13
+#SBATCH --chdir=/home/users/x/xenia1w/MastersThesis
+#SBATCH --output=/home/users/x/xenia1w/MastersThesis/logs/lora_%x_%j.out
+#SBATCH --error=/home/users/x/xenia1w/MastersThesis/logs/lora_%x_%j.err
+
+module load cuda/12.8
 
 set -euo pipefail
 
@@ -40,7 +41,7 @@ SPEAKERS=(ABA ASI BWC EBVS ERMS HJK HKK HQTV LXC MBMPS NCC NJS PNV RRBI SKA SVBI
 # Pick the speaker for this array task
 SPEAKER="${SPEAKERS[$SLURM_ARRAY_TASK_ID]}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+PROJECT_DIR="/home/users/x/xenia1w/MastersThesis"
 cd "$PROJECT_DIR"
 
 export HF_HOME="$PROJECT_DIR/data/cache/huggingface"
