@@ -78,6 +78,10 @@ def _train_lora(
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
 ) -> None:
     """Fine-tune LoRA weights on the training samples using CTC loss."""
+    # Prevent NaN loss from crashing training when a sample's label sequence is
+    # longer than the encoder output (CTC constraint violation).
+    model.config.ctc_zero_infinity = True
+
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable_params, lr=learning_rate)
 
@@ -103,6 +107,9 @@ def _train_lora(
             ).input_ids.to(device)
 
             output = model(input_values=input_values, labels=labels)
+            if torch.isnan(output.loss):
+                logger.warning(f"NaN loss at epoch {epoch + 1} step {step} — skipping")
+                continue
             loss = output.loss / grad_accum_steps
             loss.backward()
             total_loss += output.loss.item()
