@@ -52,7 +52,7 @@ def transcribe(
         input_values = inputs.input_values.to(device)
 
         with torch.no_grad():
-            logits = model(input_values).logits
+            logits = model(input_values=input_values).logits
 
         predicted_ids = torch.argmax(logits, dim=-1)
         parts.append(processor.decode(predicted_ids[0]))
