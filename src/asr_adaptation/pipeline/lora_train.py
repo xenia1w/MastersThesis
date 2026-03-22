@@ -85,6 +85,10 @@ def _train_lora(
     # Prevent NaN loss from crashing training when a sample's label sequence is
     # longer than the encoder output (CTC constraint violation).
     model.config.ctc_zero_infinity = True  # type: ignore[union-attr]
+    # Spec augment (feature masking) is designed for self-supervised pre-training.
+    # During fine-tuning its randomly-initialised masked_spec_embed causes NaN
+    # loss on CUDA/TF32 hardware (A100), so we disable it here.
+    model.config.apply_spec_augment = False  # type: ignore[union-attr]
 
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable_params, lr=learning_rate)
@@ -192,6 +196,9 @@ def run_lora_train(
         List of AdaptationRow, one per eval utterance.
     """
     output_dir = Path(output_dir)
+    # A100 GPUs use TF32 (10-bit mantissa) for matmul by default, which can
+    # produce NaN in attention dot-products with wav2vec2.  Use full float32.
+    torch.backends.cuda.matmul.allow_tf32 = False
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Speaker {speaker_id} | device: {device}")
 
