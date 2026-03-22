@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import random
 from pathlib import Path
 
@@ -22,6 +23,14 @@ from src.asr_adaptation.models.wav2vec_lora import (
     save_speaker_adapter,
     trainable_parameter_summary,
 )
+
+_TRANSCRIPT_KEEP = re.compile(r"[^A-Z\s']")
+
+
+def _prepare_ctc_transcript(text: str) -> str:
+    """Uppercase and strip characters not in the wav2vec2-base-960h vocabulary."""
+    return _TRANSCRIPT_KEEP.sub("", text.upper()).strip()
+
 
 # Default training hyperparameters
 _N_EVAL = 100
@@ -115,9 +124,11 @@ def _train_lora(
             )
             input_values = inputs.input_values.to(device)
 
-            # processor.tokenizer exists at runtime but is absent from HF type stubs
+            # processor.tokenizer exists at runtime but is absent from HF type stubs.
+            # Transcripts must be uppercased and stripped of non-vocab characters
+            # before CTC label encoding (wav2vec2-base-960h vocab is uppercase only).
             labels = getattr(processor, "tokenizer")(
-                sample.transcript,
+                _prepare_ctc_transcript(sample.transcript),
                 return_tensors="pt",
             ).input_ids.to(device)
 
