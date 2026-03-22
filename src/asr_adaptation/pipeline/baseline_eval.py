@@ -4,11 +4,11 @@ import argparse
 import csv
 import io
 import zipfile
-from dataclasses import dataclass
 from pathlib import Path
 
 import torch
 from loguru import logger
+from pydantic import BaseModel
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 from src.asr_adaptation.data.l2arctic_transcriptions import (
@@ -31,8 +31,7 @@ SAA_REFERENCE = (
 MODEL_NAME = "facebook/wav2vec2-base-960h"
 
 
-@dataclass
-class BaselineRow:
+class BaselineRow(BaseModel):
     speaker_id: str
     utterance_id: str | None
     native_language: str | None
@@ -117,23 +116,14 @@ def run_saa_baseline(
 def _save_csv(rows: list[BaselineRow], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=["speaker_id", "utterance_id", "native_language",
-                        "reference", "hypothesis", "wer"],
-        )
+        writer = csv.DictWriter(f, fieldnames=list(BaselineRow.model_fields))
         writer.writeheader()
         for row in rows:
-            writer.writerow(
-                dict(
-                    speaker_id=row.speaker_id,
-                    utterance_id=row.utterance_id or "",
-                    native_language=row.native_language or "",
-                    reference=row.reference,
-                    hypothesis=row.hypothesis,
-                    wer=round(row.wer, 4),
-                )
-            )
+            d = row.model_dump()
+            d["utterance_id"] = d["utterance_id"] or ""
+            d["native_language"] = d["native_language"] or ""
+            d["wer"] = round(d["wer"], 4)
+            writer.writerow(d)
     logger.info(f"Saved {len(rows)} rows → {path}")
 
 

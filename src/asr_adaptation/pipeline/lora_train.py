@@ -3,11 +3,11 @@ from __future__ import annotations
 import argparse
 import csv
 import random
-from dataclasses import dataclass
 from pathlib import Path
 
 import torch
 from loguru import logger
+from pydantic import BaseModel, computed_field
 from peft import PeftModel, PeftMixedModel
 from transformers import Wav2Vec2Processor
 
@@ -31,8 +31,7 @@ _LEARNING_RATE = 1e-5
 _GRAD_ACCUM_STEPS = 4
 
 
-@dataclass
-class AdaptationRow:
+class AdaptationRow(BaseModel):
     speaker_id: str
     utterance_id: str
     n_train: int
@@ -41,6 +40,11 @@ class AdaptationRow:
     hypothesis_adapted: str
     wer_baseline: float
     wer_adapted: float
+
+    @computed_field
+    @property
+    def wer_delta(self) -> float:
+        return self.wer_adapted - self.wer_baseline
 
 
 def _split_samples(
@@ -80,7 +84,7 @@ def _train_lora(
     """Fine-tune LoRA weights on the training samples using CTC loss."""
     # Prevent NaN loss from crashing training when a sample's label sequence is
     # longer than the encoder output (CTC constraint violation).
-    model.config.ctc_zero_infinity = True
+    model.config.ctc_zero_infinity = True  # type: ignore[union-attr]
 
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable_params, lr=learning_rate)
@@ -264,29 +268,14 @@ def run_lora_train(
 def _save_csv(rows: list[AdaptationRow], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "speaker_id", "utterance_id", "n_train",
-                "reference", "hypothesis_baseline", "hypothesis_adapted",
-                "wer_baseline", "wer_adapted", "wer_delta",
-            ],
-        )
+        writer = csv.DictWriter(f, fieldnames=list(AdaptationRow.model_fields) + ["wer_delta"])
         writer.writeheader()
         for row in rows:
-            writer.writerow(
-                dict(
-                    speaker_id=row.speaker_id,
-                    utterance_id=row.utterance_id,
-                    n_train=row.n_train,
-                    reference=row.reference,
-                    hypothesis_baseline=row.hypothesis_baseline,
-                    hypothesis_adapted=row.hypothesis_adapted,
-                    wer_baseline=round(row.wer_baseline, 4),
-                    wer_adapted=round(row.wer_adapted, 4),
-                    wer_delta=round(row.wer_adapted - row.wer_baseline, 4),
-                )
-            )
+            d = row.model_dump()
+            d["wer_baseline"] = round(d["wer_baseline"], 4)
+            d["wer_adapted"] = round(d["wer_adapted"], 4)
+            d["wer_delta"] = round(d["wer_delta"], 4)
+            writer.writerow(d)
     logger.info(f"Saved {len(rows)} rows → {path}")
 
 
