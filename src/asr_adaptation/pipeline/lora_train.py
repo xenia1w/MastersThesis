@@ -27,7 +27,7 @@ from src.asr_adaptation.models.wav2vec_lora import (
 _N_EVAL = 100
 _N_TRAIN_DEFAULT = 500
 _N_EPOCHS = 10
-_LEARNING_RATE = 1e-4
+_LEARNING_RATE = 1e-5
 _GRAD_ACCUM_STEPS = 4
 
 
@@ -89,9 +89,16 @@ def _train_lora(
 
     for epoch in range(n_epochs):
         total_loss = 0.0
+        valid_steps = 0
+        accum_valid = 0  # number of valid steps in the current accumulation window
         optimizer.zero_grad()
 
         for step, sample in enumerate(train_samples):
+            # wav2vec2 CNN feature extractor requires a minimum input length
+            if len(sample.waveform) < 400:
+                logger.warning(f"Skipping {sample.utterance_id}: waveform too short ({len(sample.waveform)} samples)")
+                continue
+
             inputs = processor(
                 sample.waveform.numpy(),
                 sampling_rate=sample.sampling_rate,
@@ -109,24 +116,31 @@ def _train_lora(
             output = model(input_values=input_values, labels=labels)
             if torch.isnan(output.loss):
                 logger.warning(f"NaN loss at epoch {epoch + 1} step {step} — skipping")
+                # Clear any partial gradients so the NaN doesn't pollute the window
+                optimizer.zero_grad()
+                accum_valid = 0
                 continue
             loss = output.loss / grad_accum_steps
             loss.backward()
             total_loss += output.loss.item()
+            valid_steps += 1
+            accum_valid += 1
 
             if (step + 1) % grad_accum_steps == 0:
-                torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
-                optimizer.step()
+                if accum_valid > 0:
+                    torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
+                    optimizer.step()
                 optimizer.zero_grad()
+                accum_valid = 0
 
         # Flush any remaining accumulated gradients at end of epoch
-        if len(train_samples) % grad_accum_steps != 0:
+        if accum_valid > 0:
             torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
             optimizer.step()
             optimizer.zero_grad()
 
-        avg_loss = total_loss / max(len(train_samples), 1)
-        logger.info(f"Epoch {epoch + 1}/{n_epochs} | avg loss: {avg_loss:.4f}")
+        avg_loss = total_loss / max(valid_steps, 1)
+        logger.info(f"Epoch {epoch + 1}/{n_epochs} | avg loss: {avg_loss:.4f} | valid steps: {valid_steps}/{len(train_samples)}")
 
 
 def _get_hypotheses(
