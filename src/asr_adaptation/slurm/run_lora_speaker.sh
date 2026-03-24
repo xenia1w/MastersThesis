@@ -5,7 +5,7 @@
 # Each array task handles one speaker from SPEAKERS list below.
 #
 # Submit with:
-#   sbatch --array=0-17 src/asr_adaptation/slurm/run_lora_speaker.sh
+#   sbatch --array=0-23 src/asr_adaptation/slurm/run_lora_speaker.sh
 #
 #   Or a subset (e.g. first 3 speakers for testing):
 #   sbatch --array=0-2  src/asr_adaptation/slurm/run_lora_speaker.sh
@@ -19,7 +19,7 @@
 #SBATCH --mem=24G
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:a100:1
-#SBATCH --array=0-17
+#SBATCH --array=0-23
 #SBATCH --output=logs/lora_%x_%j.out
 #SBATCH --error=logs/lora_%x_%j.err
 
@@ -35,8 +35,8 @@ module load cuda/12.8
 
 set -euo pipefail
 
-# Full list of L2-ARCTIC speakers (18 total)
-SPEAKERS=(ABA ASI BWC EBVS ERMS HJK HKK HQTV LXC MBMPS NCC NJS PNV RRBI SKA SVBI THV TNI)
+# Full list of L2-ARCTIC speakers (24 total)
+SPEAKERS=(ABA ASI BWC EBVS ERMS HJK HKK HQTV LXC MBMPS NCC NJS PNV RRBI SKA SVBI THV TNI TXHC YBAA YDCK YKWK ZHAA TLV)
 
 # Pick the speaker for this array task
 SPEAKER="${SPEAKERS[$SLURM_ARRAY_TASK_ID]}"
