@@ -47,7 +47,7 @@ def build_lora_model(
     processor = Wav2Vec2Processor.from_pretrained(model_name, cache_dir=cache_dir)
 
     lora_config = LoraConfig(
-        task_type=TaskType.TOKEN_CLS,
+        task_type=TaskType.FEATURE_EXTRACTION,
         r=lora_r,
         lora_alpha=lora_alpha,
         lora_dropout=lora_dropout,

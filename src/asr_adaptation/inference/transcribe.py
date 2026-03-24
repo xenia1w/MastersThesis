@@ -35,8 +35,14 @@ def transcribe(
         for start in range(0, len(waveform), chunk_size)
     ]
 
+    # wav2vec2 feature extractor requires a minimum input length (~400 samples);
+    # a short trailing chunk can crash the conv layers.
+    MIN_CHUNK_SAMPLES = 400
+
     parts: list[str] = []
     for chunk in chunks:
+        if len(chunk) < MIN_CHUNK_SAMPLES:
+            continue
         inputs = processor(
             chunk.numpy(),
             sampling_rate=sampling_rate,
@@ -46,7 +52,7 @@ def transcribe(
         input_values = inputs.input_values.to(device)
 
         with torch.no_grad():
-            logits = model(input_values).logits
+            logits = model(input_values=input_values).logits
 
         predicted_ids = torch.argmax(logits, dim=-1)
         parts.append(processor.decode(predicted_ids[0]))

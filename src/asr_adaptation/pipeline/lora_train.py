@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import random
-from dataclasses import dataclass
 from pathlib import Path
 
 import torch
 from loguru import logger
+from pydantic import BaseModel, computed_field
 from peft import PeftModel, PeftMixedModel
 from transformers import Wav2Vec2Processor
 
@@ -23,16 +24,23 @@ from src.asr_adaptation.models.wav2vec_lora import (
     trainable_parameter_summary,
 )
 
+_TRANSCRIPT_KEEP = re.compile(r"[^A-Z\s']")
+
+
+def _prepare_ctc_transcript(text: str) -> str:
+    """Uppercase and strip characters not in the wav2vec2-base-960h vocabulary."""
+    return _TRANSCRIPT_KEEP.sub("", text.upper()).strip()
+
+
 # Default training hyperparameters
 _N_EVAL = 100
 _N_TRAIN_DEFAULT = 500
 _N_EPOCHS = 10
-_LEARNING_RATE = 1e-4
+_LEARNING_RATE = 1e-5
 _GRAD_ACCUM_STEPS = 4
 
 
-@dataclass
-class AdaptationRow:
+class AdaptationRow(BaseModel):
     speaker_id: str
     utterance_id: str
     n_train: int
@@ -41,6 +49,11 @@ class AdaptationRow:
     hypothesis_adapted: str
     wer_baseline: float
     wer_adapted: float
+
+    @computed_field
+    @property
+    def wer_delta(self) -> float:
+        return self.wer_adapted - self.wer_baseline
 
 
 def _split_samples(
@@ -78,6 +91,14 @@ def _train_lora(
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
 ) -> None:
     """Fine-tune LoRA weights on the training samples using CTC loss."""
+    # Prevent NaN loss from crashing training when a sample's label sequence is
+    # longer than the encoder output (CTC constraint violation).
+    model.config.ctc_zero_infinity = True  # type: ignore[union-attr]
+    # Spec augment (feature masking) is designed for self-supervised pre-training.
+    # During fine-tuning its randomly-initialised masked_spec_embed causes NaN
+    # loss on CUDA/TF32 hardware (A100), so we disable it here.
+    model.config.apply_spec_augment = False  # type: ignore[union-attr]
+
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable_params, lr=learning_rate)
 
@@ -85,9 +106,16 @@ def _train_lora(
 
     for epoch in range(n_epochs):
         total_loss = 0.0
+        valid_steps = 0
+        accum_valid = 0  # number of valid steps in the current accumulation window
         optimizer.zero_grad()
 
         for step, sample in enumerate(train_samples):
+            # wav2vec2 CNN feature extractor requires a minimum input length
+            if len(sample.waveform) < 400:
+                logger.warning(f"Skipping {sample.utterance_id}: waveform too short ({len(sample.waveform)} samples)")
+                continue
+
             inputs = processor(
                 sample.waveform.numpy(),
                 sampling_rate=sample.sampling_rate,
@@ -96,30 +124,42 @@ def _train_lora(
             )
             input_values = inputs.input_values.to(device)
 
-            # processor.tokenizer exists at runtime but is absent from HF type stubs
+            # processor.tokenizer exists at runtime but is absent from HF type stubs.
+            # Transcripts must be uppercased and stripped of non-vocab characters
+            # before CTC label encoding (wav2vec2-base-960h vocab is uppercase only).
             labels = getattr(processor, "tokenizer")(
-                sample.transcript,
+                _prepare_ctc_transcript(sample.transcript),
                 return_tensors="pt",
             ).input_ids.to(device)
 
             output = model(input_values=input_values, labels=labels)
+            if torch.isnan(output.loss):
+                logger.warning(f"NaN loss at epoch {epoch + 1} step {step} — skipping")
+                # Clear any partial gradients so the NaN doesn't pollute the window
+                optimizer.zero_grad()
+                accum_valid = 0
+                continue
             loss = output.loss / grad_accum_steps
             loss.backward()
             total_loss += output.loss.item()
+            valid_steps += 1
+            accum_valid += 1
 
             if (step + 1) % grad_accum_steps == 0:
-                torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
-                optimizer.step()
+                if accum_valid > 0:
+                    torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
+                    optimizer.step()
                 optimizer.zero_grad()
+                accum_valid = 0
 
         # Flush any remaining accumulated gradients at end of epoch
-        if len(train_samples) % grad_accum_steps != 0:
+        if accum_valid > 0:
             torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
             optimizer.step()
             optimizer.zero_grad()
 
-        avg_loss = total_loss / max(len(train_samples), 1)
-        logger.info(f"Epoch {epoch + 1}/{n_epochs} | avg loss: {avg_loss:.4f}")
+        avg_loss = total_loss / max(valid_steps, 1)
+        logger.info(f"Epoch {epoch + 1}/{n_epochs} | avg loss: {avg_loss:.4f} | valid steps: {valid_steps}/{len(train_samples)}")
 
 
 def _get_hypotheses(
@@ -167,6 +207,9 @@ def run_lora_train(
         List of AdaptationRow, one per eval utterance.
     """
     output_dir = Path(output_dir)
+    # A100 GPUs use TF32 (10-bit mantissa) for matmul by default, which can
+    # produce NaN in attention dot-products with wav2vec2.  Use full float32.
+    torch.backends.cuda.matmul.allow_tf32 = False
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Speaker {speaker_id} | device: {device}")
 
@@ -243,29 +286,14 @@ def run_lora_train(
 def _save_csv(rows: list[AdaptationRow], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "speaker_id", "utterance_id", "n_train",
-                "reference", "hypothesis_baseline", "hypothesis_adapted",
-                "wer_baseline", "wer_adapted", "wer_delta",
-            ],
-        )
+        writer = csv.DictWriter(f, fieldnames=list(AdaptationRow.model_fields) + ["wer_delta"])
         writer.writeheader()
         for row in rows:
-            writer.writerow(
-                dict(
-                    speaker_id=row.speaker_id,
-                    utterance_id=row.utterance_id,
-                    n_train=row.n_train,
-                    reference=row.reference,
-                    hypothesis_baseline=row.hypothesis_baseline,
-                    hypothesis_adapted=row.hypothesis_adapted,
-                    wer_baseline=round(row.wer_baseline, 4),
-                    wer_adapted=round(row.wer_adapted, 4),
-                    wer_delta=round(row.wer_adapted - row.wer_baseline, 4),
-                )
-            )
+            d = row.model_dump()
+            d["wer_baseline"] = round(d["wer_baseline"], 4)
+            d["wer_adapted"] = round(d["wer_adapted"], 4)
+            d["wer_delta"] = round(d["wer_delta"], 4)
+            writer.writerow(d)
     logger.info(f"Saved {len(rows)} rows → {path}")
 
 
