@@ -120,6 +120,10 @@ class SpeakerConditionedLoraModel(nn.Module):
                 "Could not locate wav2vec2.feature_projection in the PEFT model."
             )
 
+    @property
+    def config(self):
+        return self.model.config
+
     def _inject_bias(self, module, input, output):  # noqa: A002
         if self._speaker_bias is not None:
             hidden_states, extract_features = output
