@@ -9,7 +9,6 @@ from pathlib import Path
 import torch
 from loguru import logger
 from pydantic import BaseModel, computed_field
-from peft import PeftModel, PeftMixedModel
 from transformers import Wav2Vec2Processor
 
 from src.asr_adaptation.data.l2arctic_transcriptions import (
@@ -18,9 +17,10 @@ from src.asr_adaptation.data.l2arctic_transcriptions import (
 )
 from src.asr_adaptation.inference.transcribe import transcribe
 from src.asr_adaptation.metrics.wer import compute_wer
+from src.asr_adaptation.data.speaker_embeddings import compute_speaker_centroid
 from src.asr_adaptation.models.wav2vec_lora import (
-    build_lora_model,
-    save_speaker_adapter,
+    build_conditioned_lora_model,
+    save_conditioned_speaker_adapter,
     trainable_parameter_summary,
 )
 
@@ -34,7 +34,7 @@ def _prepare_ctc_transcript(text: str) -> str:
 
 # Default training hyperparameters
 _N_EVAL = 100
-_N_TRAIN_DEFAULT = 500
+_N_TRAIN_DEFAULT = None  # use all available training utterances (~1,032 per speaker)
 _N_EPOCHS = 10
 _LEARNING_RATE = 1e-5
 _GRAD_ACCUM_STEPS = 4
@@ -82,10 +82,11 @@ def _split_samples(
 
 
 def _train_lora(
-    model: PeftModel | PeftMixedModel,
+    model: torch.nn.Module,
     train_samples: list[L2ArcticTranscriptSample],
     processor: Wav2Vec2Processor,
     device: torch.device,
+    speaker_embedding: torch.Tensor,
     n_epochs: int = _N_EPOCHS,
     learning_rate: float = _LEARNING_RATE,
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
@@ -132,7 +133,7 @@ def _train_lora(
                 return_tensors="pt",
             ).input_ids.to(device)
 
-            output = model(input_values=input_values, labels=labels)
+            output = model(input_values=input_values, labels=labels, speaker_embedding=speaker_embedding)
             if torch.isnan(output.loss):
                 logger.warning(f"NaN loss at epoch {epoch + 1} step {step} — skipping")
                 # Clear any partial gradients so the NaN doesn't pollute the window
@@ -163,15 +164,16 @@ def _train_lora(
 
 
 def _get_hypotheses(
-    model: PeftModel | PeftMixedModel,
+    model: torch.nn.Module,
     eval_samples: list[L2ArcticTranscriptSample],
     processor: Wav2Vec2Processor,
     device: torch.device,
+    speaker_embedding: torch.Tensor,
 ) -> list[str]:
     """Transcribe all eval samples and return hypotheses."""
     model.eval()
     return [
-        transcribe(sample.waveform, processor, model, device)
+        transcribe(sample.waveform, processor, model, device, speaker_embedding=speaker_embedding)
         for sample in eval_samples
     ]
 
@@ -187,6 +189,7 @@ def run_lora_train(
     learning_rate: float = _LEARNING_RATE,
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
     seed: int = 0,
+    wavlm_model: str = "microsoft/wavlm-base-plus",
 ) -> list[AdaptationRow]:
     """
     Fine-tune a LoRA adapter for one speaker and evaluate WER before and after.
@@ -227,9 +230,14 @@ def run_lora_train(
     actual_n_train = len(train_samples)
     logger.info(f"Train: {actual_n_train} utterances | Eval: {len(eval_samples)} utterances")
 
+    # Compute speaker centroid from training utterances (WavLM mean+std)
+    speaker_centroid = compute_speaker_centroid(
+        train_samples, device=device, model_name=wavlm_model, cache_dir=cache_dir
+    ).to(device)
+
     # Build model
     logger.info("Building LoRA model ...")
-    model, processor = build_lora_model(cache_dir=cache_dir)
+    model, processor = build_conditioned_lora_model(cache_dir=cache_dir)
     torch.nn.Module.to(model, device)
     summary = trainable_parameter_summary(model)
     logger.info(
@@ -239,18 +247,18 @@ def run_lora_train(
 
     # Baseline evaluation (before training)
     logger.info("Evaluating baseline (no adaptation) ...")
-    hypotheses_baseline = _get_hypotheses(model, eval_samples, processor, device)
+    hypotheses_baseline = _get_hypotheses(model, eval_samples, processor, device, speaker_centroid)
 
     # Fine-tune
     logger.info(f"Fine-tuning on {actual_n_train} utterances ...")
-    _train_lora(model, train_samples, processor, device, n_epochs, learning_rate, grad_accum_steps)
+    _train_lora(model, train_samples, processor, device, speaker_centroid, n_epochs, learning_rate, grad_accum_steps)
 
     # Adapted evaluation (after training)
     logger.info("Evaluating adapted model ...")
-    hypotheses_adapted = _get_hypotheses(model, eval_samples, processor, device)
+    hypotheses_adapted = _get_hypotheses(model, eval_samples, processor, device, speaker_centroid)
 
-    # Save LoRA adapter
-    adapter_path = save_speaker_adapter(model, speaker_id, output_dir / "lora_weights")
+    # Save LoRA adapter + speaker projection
+    adapter_path = save_conditioned_speaker_adapter(model, speaker_id, output_dir / "lora_weights")
     logger.info(f"Saved LoRA adapter → {adapter_path}")
 
     # Build result rows
@@ -303,7 +311,7 @@ if __name__ == "__main__":
     parser.add_argument("--l2arctic-zip",  required=True,        help="Path to l2arctic_release_v5.0.zip")
     parser.add_argument("--output-dir",    required=True,        help="Root output directory")
     parser.add_argument("--cache-dir",     default=None,         help="HuggingFace model cache directory")
-    parser.add_argument("--n-train",       type=int, default=_N_TRAIN_DEFAULT, help="Training utterances (default: 500)")
+    parser.add_argument("--n-train",       type=int, default=_N_TRAIN_DEFAULT, help="Training utterances (default: all available)")
     parser.add_argument("--n-eval",        type=int, default=_N_EVAL,          help="Eval utterances (default: 100)")
     parser.add_argument("--n-epochs",      type=int, default=_N_EPOCHS,        help="Training epochs (default: 10)")
     parser.add_argument("--seed",          type=int, default=0,                help="Random seed (default: 0)")
