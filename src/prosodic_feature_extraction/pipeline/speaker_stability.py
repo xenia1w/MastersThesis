@@ -17,16 +17,20 @@ from src.prosodic_feature_extraction.data.l2arctic_utils import list_l2arctic_sa
 from src.prosodic_feature_extraction.data.saa_segmentation import segment_saa_recording
 from src.prosodic_feature_extraction.data.saa_utils import load_saa_samples
 from src.prosodic_feature_extraction.features.incremental_embeddings import (
+    cosine_consecutive,
     cosine_to_full,
     normalize_embedding,
     running_centroids,
     select_k,
     stability_point,
+    stability_point_consecutive,
 )
 from src.prosodic_feature_extraction.features.utterance_embedding import mean_std_pool
 from src.prosodic_feature_extraction.metrics.similarity import cosine
 from src.prosodic_feature_extraction.models.prosody import L2ArcticSample, SAASample, SAASegmentSample
 from src.prosodic_feature_extraction.models.speaker_stability import (
+    EmbeddingsByK,
+    KFloatMap,
     RepresentationConfig,
     RepresentationEmbeddings,
     RepresentationRuntime,
@@ -367,9 +371,8 @@ def _append_csv_rows_from_summary(
     num_utterances: int,
     total_seconds: float,
 ) -> None:
-    for k_str, cosine_value in summary.cosine_to_full.items():
-        k = int(k_str)
-        cumulative_seconds_value = summary.total_seconds_by_k.get(k_str)
+    for k, cosine_value in summary.cosine_to_full.values.items():
+        cumulative_seconds_value = summary.total_seconds_by_k.values.get(k)
         if cumulative_seconds_value is None:
             continue
         rows.append(
@@ -382,6 +385,7 @@ def _append_csv_rows_from_summary(
                 random_seed=config.random_seed,
                 k=k,
                 cosine_to_full=cosine_value,
+                cosine_consecutive=summary.cosine_consecutive.values.get(k),
                 cumulative_seconds=cumulative_seconds_value,
                 num_utterances=num_utterances,
                 total_seconds=total_seconds,
@@ -390,6 +394,9 @@ def _append_csv_rows_from_summary(
                 stability_threshold=config.stability_threshold,
                 stability_epsilon=config.stability_epsilon,
                 stability_consecutive=config.stability_consecutive,
+                stability_consecutive_k=summary.stability_consecutive_k,
+                stability_consecutive_seconds=summary.stability_consecutive_seconds,
+                stability_consecutive_threshold=config.stability_consecutive_threshold,
             )
         )
 
@@ -410,6 +417,7 @@ def _process_representation(
     selected = select_k(centroids, config.ks)
     cosines_by_k = cosine_to_full(selected, full)
     cosines_all = [cosine(centroid, full) for centroid in centroids]
+    cosines_consec = cosine_consecutive(centroids)
 
     stable_k = stability_point(
         cosines_all,
@@ -419,11 +427,19 @@ def _process_representation(
     )
     stable_seconds = cumulative_seconds[stable_k - 1] if stable_k is not None else None
 
-    total_seconds_by_k = {
-        str(k): cumulative_seconds[k - 1]
+    stable_consec_k = stability_point_consecutive(
+        cosines_consec,
+        threshold=config.stability_consecutive_threshold,
+    )
+    stable_consec_seconds = (
+        cumulative_seconds[stable_consec_k - 1] if stable_consec_k is not None else None
+    )
+
+    total_seconds_by_k = KFloatMap(values={
+        k: cumulative_seconds[k - 1]
         for k in selected.keys()
         if k - 1 < len(cumulative_seconds)
-    }
+    })
 
     payload = SpeakerStabilityPayload(
         dataset=config.dataset,
@@ -437,26 +453,34 @@ def _process_representation(
         num_utterances=len(ordered_ids),
         total_seconds=cumulative_seconds[-1] if cumulative_seconds else 0.0,
         total_seconds_by_k=total_seconds_by_k,
-        embeddings_by_k=selected | {"full": full},
-        cosine_to_full={str(k): v for k, v in cosines_by_k.items()},
+        embeddings_by_k=EmbeddingsByK(by_k=selected, full=full),
+        cosine_to_full=KFloatMap(values=cosines_by_k),
+        cosine_consecutive=KFloatMap(values=cosines_consec),
         stability_k=stable_k,
         stability_seconds=stable_seconds,
         stability_threshold=config.stability_threshold,
         stability_epsilon=config.stability_epsilon,
         stability_consecutive=config.stability_consecutive,
+        stability_consecutive_k=stable_consec_k,
+        stability_consecutive_seconds=stable_consec_seconds,
+        stability_consecutive_threshold=config.stability_consecutive_threshold,
     )
     summary = SpeakerStabilitySummary(
         speaker_id=speaker_id,
         representation=runtime.config.name,
         model_name=runtime.config.model_name,
         ks=list(config.ks),
-        cosine_to_full={str(k): v for k, v in cosines_by_k.items()},
+        cosine_to_full=KFloatMap(values=cosines_by_k),
+        cosine_consecutive=KFloatMap(values=cosines_consec),
         total_seconds_by_k=total_seconds_by_k,
         stability_k=stable_k,
         stability_seconds=stable_seconds,
         stability_threshold=config.stability_threshold,
         stability_epsilon=config.stability_epsilon,
         stability_consecutive=config.stability_consecutive,
+        stability_consecutive_k=stable_consec_k,
+        stability_consecutive_seconds=stable_consec_seconds,
+        stability_consecutive_threshold=config.stability_consecutive_threshold,
     )
     return payload, summary
 
@@ -603,6 +627,12 @@ def parse_args(argv: Sequence[str]) -> SpeakerStabilityConfig:
         help="Number of consecutive plateau steps required.",
     )
     parser.add_argument(
+        "--stability-consecutive-threshold",
+        type=float,
+        default=0.999,
+        help="Cosine threshold for consecutive stability point.",
+    )
+    parser.add_argument(
         "--saa-segment-min-sec",
         type=float,
         default=None,
@@ -671,6 +701,7 @@ def parse_args(argv: Sequence[str]) -> SpeakerStabilityConfig:
         stability_threshold=parsed.stability_threshold,
         stability_epsilon=parsed.stability_epsilon,
         stability_consecutive=parsed.stability_consecutive,
+        stability_consecutive_threshold=parsed.stability_consecutive_threshold,
         saa_segmentation=saa_segmentation,
     )
     if not config.representations:

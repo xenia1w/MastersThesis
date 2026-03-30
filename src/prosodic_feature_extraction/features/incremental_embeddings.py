@@ -38,14 +38,34 @@ def select_k(
     return selected
 
 
+def _cosine(a: torch.Tensor, b: torch.Tensor) -> float:
+    return float(torch.clamp(F.cosine_similarity(a, b, dim=0), -1.0, 1.0))
+
+
 def cosine_to_full(
     centroids: Dict[int, torch.Tensor],
     full: torch.Tensor,
 ) -> Dict[int, float]:
-    out: Dict[int, float] = {}
-    for k, emb in centroids.items():
-        out[int(k)] = F.cosine_similarity(emb, full, dim=0).item()
-    return out
+    return {int(k): _cosine(emb, full) for k, emb in centroids.items()}
+
+
+def cosine_consecutive(centroids: List[torch.Tensor]) -> Dict[int, float]:
+    """Cosine similarity between centroid_k and centroid_{k-1} for k >= 2."""
+    return {
+        k: _cosine(centroids[k - 1], centroids[k - 2])
+        for k in range(2, len(centroids) + 1)
+    }
+
+
+def stability_point_consecutive(
+    cosines_consec: Dict[int, float],
+    threshold: float = 0.999,
+) -> int | None:
+    """First k >= 2 where s_k'' >= threshold."""
+    for k in sorted(cosines_consec.keys()):
+        if cosines_consec[k] >= threshold:
+            return k
+    return None
 
 
 def stability_point(
