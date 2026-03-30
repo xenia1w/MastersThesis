@@ -89,7 +89,7 @@ def test_train_lora_calls_optimizer_step() -> None:
     with patch("src.asr_adaptation.pipeline.lora_train.torch.optim.AdamW") as MockAdam:
         mock_opt = MagicMock()
         MockAdam.return_value = mock_opt
-        _train_lora(model, samples, processor, torch.device("cpu"), n_epochs=1, grad_accum_steps=4)
+        _train_lora(model, samples, processor, torch.device("cpu"), torch.zeros(1536), n_epochs=1, grad_accum_steps=4)
 
     mock_opt.step.assert_called()
 
@@ -150,7 +150,7 @@ def test_get_hypotheses_returns_one_per_sample() -> None:
     samples = _make_samples(3)
 
     with patch("src.asr_adaptation.pipeline.lora_train.transcribe", return_value="hello") as mock_t:
-        result = _get_hypotheses(model, samples, processor, torch.device("cpu"))
+        result = _get_hypotheses(model, samples, processor, torch.device("cpu"), torch.zeros(1536))
 
     assert len(result) == 3
     assert mock_t.call_count == 3

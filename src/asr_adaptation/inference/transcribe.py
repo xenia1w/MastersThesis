@@ -9,6 +9,7 @@ def transcribe(
     processor: Wav2Vec2Processor,
     model: torch.nn.Module,
     device: torch.device,
+    speaker_embedding: torch.Tensor | None = None,
     chunk_length_s: int = 30,
     sampling_rate: int = 16000,
 ) -> str:
@@ -52,7 +53,10 @@ def transcribe(
         input_values = inputs.input_values.to(device)
 
         with torch.no_grad():
-            logits = model(input_values=input_values).logits
+            kwargs: dict = {"input_values": input_values}
+            if speaker_embedding is not None:
+                kwargs["speaker_embedding"] = speaker_embedding.to(device)
+            logits = model(**kwargs).logits
 
         predicted_ids = torch.argmax(logits, dim=-1)
         parts.append(processor.decode(predicted_ids[0]))
