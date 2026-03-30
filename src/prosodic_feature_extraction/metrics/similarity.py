@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 def cosine(a: torch.Tensor, b: torch.Tensor) -> float:
-    return F.cosine_similarity(a, b, dim=0).item()
+    return float(torch.clamp(F.cosine_similarity(a, b, dim=0), -1.0, 1.0))
 
 
 def frame_level_similarity_naive(a: torch.Tensor, b: torch.Tensor) -> float:

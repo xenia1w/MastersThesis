@@ -24,6 +24,17 @@ DatasetName = Literal["l2arctic", "saa"]
 EmbeddingType = Literal["mean_std", "xvector"]
 
 
+class KFloatMap(BaseModel):
+    """Mapping from utterance count k (integer) to a float metric value."""
+    values: Dict[int, float] = Field(default_factory=dict)
+
+
+class EmbeddingsByK(TensorModel):
+    """Per-k centroid embeddings plus the full-corpus centroid."""
+    by_k: Dict[int, torch.Tensor]
+    full: torch.Tensor
+
+
 class RepresentationConfig(BaseModel):
     name: str
     model_name: str
@@ -55,14 +66,18 @@ class SpeakerStabilityPayload(TensorModel):
     ordered_utterance_ids: List[str]
     num_utterances: int
     total_seconds: float
-    total_seconds_by_k: Dict[str, float]
-    embeddings_by_k: Dict[int | str, torch.Tensor]
-    cosine_to_full: Dict[str, float]
+    total_seconds_by_k: KFloatMap
+    embeddings_by_k: EmbeddingsByK
+    cosine_to_full: KFloatMap
+    cosine_consecutive: KFloatMap
     stability_k: int | None
     stability_seconds: float | None
     stability_threshold: float
     stability_epsilon: float
     stability_consecutive: int
+    stability_consecutive_k: int | None
+    stability_consecutive_seconds: float | None
+    stability_consecutive_threshold: float
 
 
 class SpeakerStabilitySummary(BaseModel):
@@ -70,13 +85,17 @@ class SpeakerStabilitySummary(BaseModel):
     representation: str
     model_name: str
     ks: List[int]
-    cosine_to_full: Dict[str, float]
-    total_seconds_by_k: Dict[str, float]
+    cosine_to_full: KFloatMap
+    cosine_consecutive: KFloatMap
+    total_seconds_by_k: KFloatMap
     stability_k: int | None
     stability_seconds: float | None
     stability_threshold: float
     stability_epsilon: float
     stability_consecutive: int
+    stability_consecutive_k: int | None
+    stability_consecutive_seconds: float | None
+    stability_consecutive_threshold: float
 
 
 class SpeakerStabilityCsvRow(BaseModel):
@@ -88,6 +107,7 @@ class SpeakerStabilityCsvRow(BaseModel):
     random_seed: int
     k: int
     cosine_to_full: float
+    cosine_consecutive: float | None
     cumulative_seconds: float
     num_utterances: int
     total_seconds: float
@@ -96,6 +116,9 @@ class SpeakerStabilityCsvRow(BaseModel):
     stability_threshold: float
     stability_epsilon: float
     stability_consecutive: int
+    stability_consecutive_k: int | None
+    stability_consecutive_seconds: float | None
+    stability_consecutive_threshold: float
 
 
 class SAASegmentationConfig(BaseModel):
@@ -122,4 +145,5 @@ class SpeakerStabilityConfig(BaseModel):
     stability_threshold: float = 0.95
     stability_epsilon: float = 0.002
     stability_consecutive: int = 2
+    stability_consecutive_threshold: float = 0.999
     saa_segmentation: SAASegmentationConfig | None = None
