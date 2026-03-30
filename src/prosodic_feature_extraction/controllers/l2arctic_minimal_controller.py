@@ -6,7 +6,7 @@ from typing import Iterable, List
 from src.prosodic_feature_extraction.data.audio_utils import load_l2arctic_wav
 from src.prosodic_feature_extraction.features.utterance_embedding import mean_std_pool
 from src.prosodic_feature_extraction.models.prosody import L2ArcticSample, ProsodyEmbedding
-from src.prosodic_feature_extraction.models.wavlm_encoder import WavLMEncoder
+from src.prosodic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 
 class L2ArcticMinimalController:
@@ -15,9 +15,11 @@ class L2ArcticMinimalController:
         outer_zip: str,
         model_name: str,
         save_root: str,
+        base_model_name: str = "microsoft/wavlm-base-plus",
     ) -> None:
         self.outer_zip = outer_zip
-        self.encoder = WavLMEncoder(model_name=model_name)
+        self.base_encoder = WavLMBaseEncoder(model_name=base_model_name)
+        self.sv_encoder = WavLMEncoder(model_name=model_name)
         self.save_root_path = Path(save_root)
         self.save_root_path.mkdir(parents=True, exist_ok=True)
 
@@ -25,8 +27,8 @@ class L2ArcticMinimalController:
         waveform, sr = load_l2arctic_wav(
             self.outer_zip, sample.speaker_id, sample.wav_name
         )
-        frames = self.encoder.encode_frames(waveform, sr)
-        utt_emb = self.encoder.encode_utterance(waveform, sr)
+        frames = self.base_encoder.encode_frames(waveform, sr)
+        utt_emb = self.sv_encoder.encode_utterance(waveform, sr)
         utt_emb_meanstd = mean_std_pool(frames)
 
         return ProsodyEmbedding(
@@ -68,7 +70,8 @@ class L2ArcticMinimalController:
             "frame_representations": embedding.frames,
             "utterance_embedding": embedding.utt_emb,
             "utterance_embedding_meanstd": embedding.utt_emb_meanstd,
-            "model_name": self.encoder.model_name,
+            "base_model_name": self.base_encoder.model_name,
+            "sv_model_name": self.sv_encoder.model_name,
         }
         import torch
 

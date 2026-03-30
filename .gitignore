@@ -45,6 +45,8 @@ build/
 # IDEs
 # =========================
 
+.serena/
+
 # IntelliJ / PyCharm
 .idea/
 *.iml
