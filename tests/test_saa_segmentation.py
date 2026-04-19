@@ -2,8 +2,8 @@ import unittest
 
 import torch
 
-from src.prosodic_feature_extraction.data.saa_segmentation import segment_saa_recording
-from src.prosodic_feature_extraction.models.prosody import SAASample
+from src.acoustic_feature_extraction.data.saa_segmentation import segment_saa_recording
+from src.acoustic_feature_extraction.models.acoustic import SAASample
 
 
 class TestSAASegmentation(unittest.TestCase):

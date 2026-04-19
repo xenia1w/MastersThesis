@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.prosodic_feature_extraction.pipeline.extract_perturbation_embeddings import (
+from src.acoustic_feature_extraction.pipeline.extract_perturbation_embeddings import (
     PerturbationRow,
     _embedding_output_path,
     _resolve_manifest_csv,

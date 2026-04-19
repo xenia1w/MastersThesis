@@ -1,4 +1,4 @@
-# Phase 1 — Prosodic Feature Extraction
+# Phase 1 — Acoustic Feature Extraction
 
 Extract WavLM speaker embeddings from L2-ARCTIC and Speech Accent Archive,
 generate audio perturbations, and analyse embedding stability and sensitivity.
@@ -38,13 +38,13 @@ Each speaker gets a subdirectory of `.pt` files (PyTorch tensors + metadata).
 
 ### 2. Generate Perturbed Audio
 
-Applies 5 prosodic perturbation types to each utterance:
+Applies 5 acoustic perturbation types to each utterance:
 - `rate_p10` / `rate_m10` — time stretch ±10%
 - `pitch_p2st` / `pitch_m2st` — pitch shift ±2 semitones
 - `pause_ins` — insert 0.2s silence at 35% and 70% of the utterance
 
 ```bash
-uv run python -m src.prosodic_feature_extraction.pipeline.generate_perturbations
+uv run python -m src.acoustic_feature_extraction.pipeline.generate_perturbations
 ```
 
 Output: `data/processed/perturbations/{dataset}/` + `manifest.csv`
@@ -56,7 +56,7 @@ Output: `data/processed/perturbations/{dataset}/` + `manifest.csv`
 Extracts WavLM embeddings for each original and perturbed audio file.
 
 ```bash
-uv run python -m src.prosodic_feature_extraction.pipeline.extract_perturbation_embeddings
+uv run python -m src.acoustic_feature_extraction.pipeline.extract_perturbation_embeddings
 ```
 
 Output: `data/processed/perturbation_embeddings/{dataset}/` + `manifest_embeddings.csv`
@@ -69,7 +69,7 @@ Computes cosine similarity between original and perturbed embeddings for each
 of the 3 embedding types (mean-pooled, mean+std, x-vector).
 
 ```bash
-uv run python -m src.prosodic_feature_extraction.pipeline.analyze_perturbation_sensitivity
+uv run python -m src.acoustic_feature_extraction.pipeline.analyze_perturbation_sensitivity
 ```
 
 Output: `data/processed/perturbation_sensitivity/{dataset}/`
@@ -84,7 +84,7 @@ Output: `data/processed/perturbation_sensitivity/{dataset}/`
 Plots how quickly each speaker's embedding converges as more utterances are added.
 
 ```bash
-uv run python -m src.prosodic_feature_extraction.pipeline.speaker_stability
+uv run python -m src.acoustic_feature_extraction.pipeline.speaker_stability
 ```
 
 Output: `data/processed/stability/`

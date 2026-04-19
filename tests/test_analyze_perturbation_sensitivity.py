@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torch
 
-from src.prosodic_feature_extraction.pipeline.analyze_perturbation_sensitivity import (
+from src.acoustic_feature_extraction.pipeline.analyze_perturbation_sensitivity import (
     EmbeddingManifestRow,
     build_aggregate_rows,
     build_detail_rows,

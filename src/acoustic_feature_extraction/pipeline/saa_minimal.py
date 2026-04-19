@@ -7,14 +7,14 @@ import torch.nn.functional as F
 from loguru import logger
 from tqdm import tqdm
 
-from src.prosodic_feature_extraction.controllers.saa_minimal_controller import SAAMinimalController
-from src.prosodic_feature_extraction.data.saa_utils import load_saa_samples
-from src.prosodic_feature_extraction.metrics.similarity import (
+from src.acoustic_feature_extraction.controllers.saa_minimal_controller import SAAMinimalController
+from src.acoustic_feature_extraction.data.saa_utils import load_saa_samples
+from src.acoustic_feature_extraction.metrics.similarity import (
     cosine,
     frame_level_similarity_naive,
     frame_level_similarity_topk,
 )
-from src.prosodic_feature_extraction.models.prosody import ProsodyEmbedding, SAASample
+from src.acoustic_feature_extraction.models.acoustic import AcousticEmbedding, SAASample
 
 
 def prepare_sample_list(
@@ -25,9 +25,9 @@ def prepare_sample_list(
 
 
 def group_by_language(
-    results: List[ProsodyEmbedding],
-) -> Dict[str, List[ProsodyEmbedding]]:
-    by_language: Dict[str, List[ProsodyEmbedding]] = {}
+    results: List[AcousticEmbedding],
+) -> Dict[str, List[AcousticEmbedding]]:
+    by_language: Dict[str, List[AcousticEmbedding]] = {}
     for embedding in results:
         key = (
             embedding.saa_metadata.native_language
@@ -39,7 +39,7 @@ def group_by_language(
 
 
 def compute_language_centroids(
-    by_language: Dict[str, List[ProsodyEmbedding]],
+    by_language: Dict[str, List[AcousticEmbedding]],
 ) -> Dict[str, torch.Tensor]:
     centroids: Dict[str, torch.Tensor] = {}
     for language, embeddings in by_language.items():
@@ -71,7 +71,7 @@ def print_language_centroid_similarities(
 
 
 def print_within_language_similarities(
-    by_language: Dict[str, List[ProsodyEmbedding]],
+    by_language: Dict[str, List[AcousticEmbedding]],
     centroids: Dict[str, torch.Tensor],
 ) -> None:
     logger.info("Within-language avg cosine to centroid (xvector):")
@@ -83,7 +83,7 @@ def print_within_language_similarities(
 
 
 def print_pairwise_similarities(
-    results: List[ProsodyEmbedding],
+    results: List[AcousticEmbedding],
     max_items: int = 25,
 ) -> None:
     if len(results) > max_items:
@@ -121,7 +121,7 @@ def run_saa_minimal(
     samples: Iterable[SAASample] | None = None,
     model_name: str = "microsoft/wavlm-base-plus-sv",
     save_root: str = "data/processed/saa_minimal_embeddings",
-) -> List[ProsodyEmbedding]:
+) -> List[AcousticEmbedding]:
     sample_list = prepare_sample_list(outer_zip, samples)
 
     controller = SAAMinimalController(

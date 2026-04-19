@@ -5,7 +5,7 @@ from typing import List, Tuple
 import librosa
 import torch
 
-from src.prosodic_feature_extraction.models.prosody import SAASample, SAASegmentSample
+from src.acoustic_feature_extraction.models.acoustic import SAASample, SAASegmentSample
 
 
 def _merge_intervals(

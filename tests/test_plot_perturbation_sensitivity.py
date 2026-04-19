@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.prosodic_feature_extraction.plots.plot_perturbation_sensitivity import (
+from src.acoustic_feature_extraction.plots.plot_perturbation_sensitivity import (
     compute_metric_stats,
 )
 

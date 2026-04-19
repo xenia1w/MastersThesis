@@ -64,7 +64,7 @@ class SAAMetadata(TensorModel):
     birthplace: Optional[str] = None
 
 
-class ProsodyEmbedding(TensorModel):
+class AcousticEmbedding(TensorModel):
 
     dataset: Literal["l2arctic", "saa"]
     speaker_id: str

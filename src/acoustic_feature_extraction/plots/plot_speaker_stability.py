@@ -243,7 +243,7 @@ def main(argv: Sequence[str]) -> int:
     out_dir = (
         Path(args.out_dir)
         if args.out_dir
-        else Path("src") / "prosodic_feature_extraction" / "plots" / dataset
+        else Path("src") / "acoustic_feature_extraction" / "plots" / dataset
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     formats = [fmt.strip().lower() for fmt in str(args.formats).split(",") if fmt.strip()]

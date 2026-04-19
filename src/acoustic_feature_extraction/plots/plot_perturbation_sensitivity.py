@@ -200,7 +200,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--out-root",
-        default="src/prosodic_feature_extraction/plots/perturbation_sensitivity",
+        default="src/acoustic_feature_extraction/plots/perturbation_sensitivity",
         help="Output root for plot figures.",
     )
     parser.add_argument(

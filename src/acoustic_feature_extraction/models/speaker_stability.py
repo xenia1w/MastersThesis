@@ -18,7 +18,7 @@ else:
         class Config:
             arbitrary_types_allowed = True
 
-from src.prosodic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
+from src.acoustic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 DatasetName = Literal["l2arctic", "saa"]
 EmbeddingType = Literal["mean_std", "xvector"]

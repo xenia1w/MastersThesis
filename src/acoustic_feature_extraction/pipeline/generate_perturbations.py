@@ -15,10 +15,10 @@ import torch
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
-from src.prosodic_feature_extraction.data.audio_utils import load_l2arctic_wav, load_saa_mp3
-from src.prosodic_feature_extraction.data.l2arctic_utils import list_l2arctic_samples
-from src.prosodic_feature_extraction.data.saa_utils import load_saa_samples
-from src.prosodic_feature_extraction.models.prosody import L2ArcticSample, SAASample
+from src.acoustic_feature_extraction.data.audio_utils import load_l2arctic_wav, load_saa_mp3
+from src.acoustic_feature_extraction.data.l2arctic_utils import list_l2arctic_samples
+from src.acoustic_feature_extraction.data.saa_utils import load_saa_samples
+from src.acoustic_feature_extraction.models.acoustic import L2ArcticSample, SAASample
 
 DatasetName = Literal["l2arctic", "saa"]
 
@@ -349,7 +349,7 @@ def run_generate_perturbations(config: PerturbationConfig) -> Path:
 
 def parse_args(argv: Sequence[str]) -> PerturbationConfig:
     parser = argparse.ArgumentParser(
-        description="Generate controlled prosodic perturbations for a subset of utterances."
+        description="Generate controlled acoustic perturbations for a subset of utterances."
     )
     parser.add_argument(
         "--dataset",

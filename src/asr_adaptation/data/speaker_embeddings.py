@@ -7,8 +7,8 @@ import torch.nn.functional as F
 from loguru import logger
 
 from src.asr_adaptation.data.l2arctic_transcriptions import L2ArcticTranscriptSample
-from src.prosodic_feature_extraction.features.utterance_embedding import mean_std_pool
-from src.prosodic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder
+from src.acoustic_feature_extraction.features.utterance_embedding import mean_std_pool
+from src.acoustic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder
 
 _WAVLM_MODEL = "microsoft/wavlm-base-plus"
 

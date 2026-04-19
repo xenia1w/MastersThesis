@@ -5,7 +5,7 @@ import zipfile
 from pathlib import Path
 from typing import List
 
-from src.prosodic_feature_extraction.models.prosody import L2ArcticSample
+from src.acoustic_feature_extraction.models.acoustic import L2ArcticSample
 
 
 def list_l2arctic_samples(outer_zip_path: str) -> List[L2ArcticSample]:

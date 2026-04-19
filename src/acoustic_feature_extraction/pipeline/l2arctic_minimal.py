@@ -7,13 +7,13 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from loguru import logger
 
-from src.prosodic_feature_extraction.controllers.l2arctic_minimal_controller import L2ArcticMinimalController
-from src.prosodic_feature_extraction.metrics.similarity import (
+from src.acoustic_feature_extraction.controllers.l2arctic_minimal_controller import L2ArcticMinimalController
+from src.acoustic_feature_extraction.metrics.similarity import (
     cosine,
     frame_level_similarity_naive,
     frame_level_similarity_topk,
 )
-from src.prosodic_feature_extraction.models.prosody import L2ArcticSample, ProsodyEmbedding
+from src.acoustic_feature_extraction.models.acoustic import L2ArcticSample, AcousticEmbedding
 
 
 def default_samples() -> List[L2ArcticSample]:
@@ -37,16 +37,16 @@ def prepare_sample_list(
 
 
 def group_by_speaker(
-    results: List[ProsodyEmbedding],
-) -> Dict[str, List[ProsodyEmbedding]]:
-    by_speaker: Dict[str, List[ProsodyEmbedding]] = {}
+    results: List[AcousticEmbedding],
+) -> Dict[str, List[AcousticEmbedding]]:
+    by_speaker: Dict[str, List[AcousticEmbedding]] = {}
     for embedding in results:
         by_speaker.setdefault(embedding.speaker_id, []).append(embedding)
     return by_speaker
 
 
 def compute_speaker_centroids(
-    by_speaker: Dict[str, List[ProsodyEmbedding]],
+    by_speaker: Dict[str, List[AcousticEmbedding]],
 ) -> Dict[str, torch.Tensor]:
     centroids: Dict[str, torch.Tensor] = {}
     for speaker_id, embeddings in by_speaker.items():
@@ -69,7 +69,7 @@ def print_speaker_centroid_similarities(
 
 
 def print_within_speaker_similarities(
-    by_speaker: Dict[str, List[ProsodyEmbedding]],
+    by_speaker: Dict[str, List[AcousticEmbedding]],
     centroids: Dict[str, torch.Tensor],
 ) -> None:
     logger.info("Within-speaker avg cosine to centroid (xvector):")
@@ -81,7 +81,7 @@ def print_within_speaker_similarities(
 
 
 def print_pairwise_similarities(
-    results: List[ProsodyEmbedding],
+    results: List[AcousticEmbedding],
 ) -> None:
     logger.info("Pairwise comparisons (xvector + frame-level):")
     for i in range(len(results)):
@@ -109,7 +109,7 @@ def run_l2arctic_minimal(
     samples: Iterable[L2ArcticSample] | None = None,
     model_name: str = "microsoft/wavlm-base-plus-sv",
     save_root: str = "data/processed/l2arctic_minimal_embeddings",
-) -> List[ProsodyEmbedding]:
+) -> List[AcousticEmbedding]:
     sample_list = prepare_sample_list(samples)
 
     controller = L2ArcticMinimalController(

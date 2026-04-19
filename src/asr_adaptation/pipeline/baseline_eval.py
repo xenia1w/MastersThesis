@@ -16,8 +16,8 @@ from src.asr_adaptation.data.l2arctic_transcriptions import (
 )
 from src.asr_adaptation.inference.transcribe import transcribe
 from src.asr_adaptation.metrics.wer import compute_wer
-from src.prosodic_feature_extraction.data.audio_utils import load_saa_mp3
-from src.prosodic_feature_extraction.data.saa_utils import load_saa_samples
+from src.acoustic_feature_extraction.data.audio_utils import load_saa_mp3
+from src.acoustic_feature_extraction.data.saa_utils import load_saa_samples
 
 # The fixed passage all Speech Accent Archive speakers read aloud
 SAA_REFERENCE = (

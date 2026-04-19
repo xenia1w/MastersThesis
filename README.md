@@ -3,9 +3,9 @@
 ## Overview
 
 This project investigates speaker adaptation for automatic speech recognition (ASR)
-using prosodic features extracted from non-native English speakers.
+using acoustic features extracted from non-native English speakers.
 
-**Phase 1 — Prosodic Feature Extraction** (`src/prosodic_feature_extraction/`)
+**Phase 1 — Acoustic Feature Extraction** (`src/acoustic_feature_extraction/`)
 Extract WavLM speaker embeddings from L2-ARCTIC and Speech Accent Archive datasets,
 analyse perturbation sensitivity, and study embedding stability.
 
@@ -57,10 +57,10 @@ uv run ty check
 
 ```
 MastersThesis/
-├── main.py                          # Phase 1 entry point (prosodic features)
+├── main.py                          # Phase 1 entry point (acoustic features)
 ├── pyproject.toml
 ├── src/
-│   ├── prosodic_feature_extraction/ # Phase 1 — see its README
+│   ├── acoustic_feature_extraction/ # Phase 1 — see its README
 │   └── asr_adaptation/              # Phase 2 — see its README
 ├── tests/                           # All unit tests
 └── data/
@@ -79,5 +79,5 @@ MastersThesis/
 
 ## Phase Guides
 
-- **Phase 1:** [`src/prosodic_feature_extraction/README.md`](src/prosodic_feature_extraction/README.md)
+- **Phase 1:** [`src/acoustic_feature_extraction/README.md`](src/acoustic_feature_extraction/README.md)
 - **Phase 2:** [`src/asr_adaptation/README.md`](src/asr_adaptation/README.md)

@@ -4,17 +4,17 @@ from typing import Iterable, List, Literal
 
 from pydantic import BaseModel, Field
 
-from src.prosodic_feature_extraction.data.saa_utils import load_saa_samples
-from src.prosodic_feature_extraction.models.prosody import L2ArcticSample, ProsodyEmbedding, SAASample
-from src.prosodic_feature_extraction.pipeline.l2arctic_minimal import default_samples, run_l2arctic_minimal
-from src.prosodic_feature_extraction.pipeline.saa_minimal import run_saa_minimal
+from src.acoustic_feature_extraction.data.saa_utils import load_saa_samples
+from src.acoustic_feature_extraction.models.acoustic import L2ArcticSample, AcousticEmbedding, SAASample
+from src.acoustic_feature_extraction.pipeline.l2arctic_minimal import default_samples, run_l2arctic_minimal
+from src.acoustic_feature_extraction.pipeline.saa_minimal import run_saa_minimal
 
 DatasetName = Literal["l2arctic", "saa"]
 SampleInput = Iterable[L2ArcticSample] | Iterable[SAASample] | None
-EmbeddingOutput = List[ProsodyEmbedding]
+EmbeddingOutput = List[AcousticEmbedding]
 
 
-class ProsodyPipelineConfig(BaseModel):
+class AcousticPipelineConfig(BaseModel):
     dataset: DatasetName = Field(
         ..., description="Dataset to run: l2arctic or saa."
     )
@@ -39,7 +39,7 @@ class ProsodyPipelineConfig(BaseModel):
     )
 
 
-def _resolve_outer_zip(config: ProsodyPipelineConfig) -> str:
+def _resolve_outer_zip(config: AcousticPipelineConfig) -> str:
     if config.outer_zip is not None:
         return config.outer_zip
     if config.dataset == "l2arctic":
@@ -47,7 +47,7 @@ def _resolve_outer_zip(config: ProsodyPipelineConfig) -> str:
     return "data/raw/archive.zip"
 
 
-def _resolve_save_root(config: ProsodyPipelineConfig) -> str:
+def _resolve_save_root(config: AcousticPipelineConfig) -> str:
     if config.save_root is not None:
         return config.save_root
     if config.dataset == "l2arctic":
@@ -55,8 +55,8 @@ def _resolve_save_root(config: ProsodyPipelineConfig) -> str:
     return "data/processed/saa_minimal_embeddings"
 
 
-def run_prosody_pipeline(
-    config: ProsodyPipelineConfig,
+def run_acoustic_pipeline(
+    config: AcousticPipelineConfig,
     samples: SampleInput = None,
 ) -> EmbeddingOutput:
     outer_zip = _resolve_outer_zip(config)

@@ -122,7 +122,7 @@ CSV columns: `speaker_id, n_train, seed, wer_baseline, wer_adapted, wer_delta`
 
 ---
 
-### 4. Prosodic Correlation Analysis (Ticket #7)
+### 4. Acoustic Correlation Analysis (Ticket #7)
 
 *Not yet implemented — coming after tickets #5 and #6.*
 
@@ -130,10 +130,10 @@ Correlates WavLM embedding distance (from Phase 1) with WER improvement
 from LoRA adaptation. Connects Phase 1 to Phase 2 analytically.
 
 ```bash
-uv run python -m src.asr_adaptation.pipeline.prosodic_correlation \
+uv run python -m src.asr_adaptation.pipeline.acoustic_correlation \
     --embeddings-dir    data/processed/l2arctic_minimal_embeddings \
     --adaptation-csv    data/processed/asr_adaptation/adaptation_results/l2arctic_adapted.csv \
-    --output-dir        data/processed/asr_adaptation/prosodic_correlation
+    --output-dir        data/processed/asr_adaptation/acoustic_correlation
 ```
 
 ---
@@ -207,7 +207,7 @@ src/asr_adaptation/
 │   ├── baseline_eval.py            # Ticket #4
 │   ├── lora_train.py               # Ticket #5 ✓
 │   ├── data_size_analysis.py       # Ticket #6 ✓
-│   └── prosodic_correlation.py     # Ticket #7 (TODO)
+│   └── acoustic_correlation.py     # Ticket #7 (TODO)
 └── slurm/
     ├── run_baseline.sh
     ├── run_lora_speaker.sh

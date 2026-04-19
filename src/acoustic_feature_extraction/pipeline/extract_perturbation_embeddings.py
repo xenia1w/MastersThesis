@@ -14,8 +14,8 @@ import torch
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
-from src.prosodic_feature_extraction.features.utterance_embedding import mean_pool, mean_std_pool
-from src.prosodic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
+from src.acoustic_feature_extraction.features.utterance_embedding import mean_pool, mean_std_pool
+from src.acoustic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 DatasetName = Literal["l2arctic", "saa"]
 

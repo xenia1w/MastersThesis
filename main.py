@@ -4,12 +4,12 @@ import argparse
 import sys
 from typing import Sequence
 
-from src.prosodic_feature_extraction.pipeline.prosody_pipeline import ProsodyPipelineConfig, run_prosody_pipeline
+from src.acoustic_feature_extraction.pipeline.acoustic_pipeline import AcousticPipelineConfig, run_acoustic_pipeline
 
 
-def parse_args(argv: Sequence[str]) -> ProsodyPipelineConfig:
+def parse_args(argv: Sequence[str]) -> AcousticPipelineConfig:
     parser = argparse.ArgumentParser(
-        description="Run prosody feature extraction for L2-ARCTIC or SAA."
+        description="Run acoustic feature extraction for L2-ARCTIC or SAA."
     )
     parser.add_argument(
         "--dataset",
@@ -52,7 +52,7 @@ def parse_args(argv: Sequence[str]) -> ProsodyPipelineConfig:
     parser.set_defaults(validate_files=True)
 
     parsed = parser.parse_args(list(argv))
-    return ProsodyPipelineConfig(
+    return AcousticPipelineConfig(
         dataset=parsed.dataset,
         outer_zip=parsed.outer_zip,
         model_name=parsed.model_name,
@@ -67,7 +67,7 @@ def main(argv: Sequence[str]) -> int:
     # Example: uv run python main.py --dataset l2arctic (or --dataset saa)
     # SAA with a quick limit: uv run python main.py --dataset saa --max-items 20
     config = parse_args(argv)
-    run_prosody_pipeline(config=config)
+    run_acoustic_pipeline(config=config)
     return 0
 
 

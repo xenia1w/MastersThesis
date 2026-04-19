@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.prosodic_feature_extraction.pipeline.generate_perturbations import (
+from src.acoustic_feature_extraction.pipeline.generate_perturbations import (
     _build_output_path,
     _manifest_row,
     _variant_pause_insert,

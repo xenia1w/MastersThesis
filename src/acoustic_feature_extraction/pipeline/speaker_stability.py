@@ -12,11 +12,11 @@ import torch
 from loguru import logger
 from tqdm import tqdm
 
-from src.prosodic_feature_extraction.data.audio_utils import load_l2arctic_wav, load_saa_mp3
-from src.prosodic_feature_extraction.data.l2arctic_utils import list_l2arctic_samples
-from src.prosodic_feature_extraction.data.saa_segmentation import segment_saa_recording
-from src.prosodic_feature_extraction.data.saa_utils import load_saa_samples
-from src.prosodic_feature_extraction.features.incremental_embeddings import (
+from src.acoustic_feature_extraction.data.audio_utils import load_l2arctic_wav, load_saa_mp3
+from src.acoustic_feature_extraction.data.l2arctic_utils import list_l2arctic_samples
+from src.acoustic_feature_extraction.data.saa_segmentation import segment_saa_recording
+from src.acoustic_feature_extraction.data.saa_utils import load_saa_samples
+from src.acoustic_feature_extraction.features.incremental_embeddings import (
     cosine_consecutive,
     cosine_to_full,
     normalize_embedding,
@@ -25,10 +25,10 @@ from src.prosodic_feature_extraction.features.incremental_embeddings import (
     stability_point,
     stability_point_consecutive,
 )
-from src.prosodic_feature_extraction.features.utterance_embedding import mean_std_pool
-from src.prosodic_feature_extraction.metrics.similarity import cosine
-from src.prosodic_feature_extraction.models.prosody import L2ArcticSample, SAASample, SAASegmentSample
-from src.prosodic_feature_extraction.models.speaker_stability import (
+from src.acoustic_feature_extraction.features.utterance_embedding import mean_std_pool
+from src.acoustic_feature_extraction.metrics.similarity import cosine
+from src.acoustic_feature_extraction.models.acoustic import L2ArcticSample, SAASample, SAASegmentSample
+from src.acoustic_feature_extraction.models.speaker_stability import (
     EmbeddingsByK,
     KFloatMap,
     RepresentationConfig,
@@ -40,7 +40,7 @@ from src.prosodic_feature_extraction.models.speaker_stability import (
     SpeakerStabilityPayload,
     SpeakerStabilitySummary,
 )
-from src.prosodic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
+from src.acoustic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 SampleT = TypeVar("SampleT", L2ArcticSample, SAASample, SAASegmentSample)
 
