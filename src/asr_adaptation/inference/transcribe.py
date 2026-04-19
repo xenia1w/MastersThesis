@@ -14,7 +14,7 @@ def transcribe(
     sampling_rate: int = 16000,
 ) -> str:
     """
-    Transcribe a waveform using a wav2vec2 model.
+    Transcribe a waveform using a WavLM CTC model.
 
     Long recordings are split into chunks to avoid memory issues.
     Chunk transcriptions are joined with a space.
@@ -22,7 +22,7 @@ def transcribe(
     Args:
         waveform: 1D float32 tensor at `sampling_rate`.
         processor: Matching Wav2Vec2Processor.
-        model: Wav2Vec2ForCTC (base or LoRA-wrapped).
+        model: WavLMForCTC (base or LoRA-wrapped).
         device: Target device (cpu / cuda).
         chunk_length_s: Max seconds per chunk.
         sampling_rate: Expected sample rate of the waveform.
@@ -36,7 +36,7 @@ def transcribe(
         for start in range(0, len(waveform), chunk_size)
     ]
 
-    # wav2vec2 feature extractor requires a minimum input length (~400 samples);
+    # WavLM feature extractor requires a minimum input length (~400 samples);
     # a short trailing chunk can crash the conv layers.
     MIN_CHUNK_SAMPLES = 400
 

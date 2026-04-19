@@ -18,7 +18,7 @@ from src.asr_adaptation.data.l2arctic_transcriptions import (
 from src.asr_adaptation.inference.transcribe import transcribe
 from src.asr_adaptation.metrics.wer import compute_wer
 from src.asr_adaptation.data.speaker_embeddings import compute_speaker_centroid
-from src.asr_adaptation.models.wav2vec_lora import (
+from src.asr_adaptation.models.wavlm_lora import (
     build_conditioned_lora_model,
     save_conditioned_speaker_adapter,
     trainable_parameter_summary,
@@ -28,7 +28,7 @@ _TRANSCRIPT_KEEP = re.compile(r"[^A-Z\s']")
 
 
 def _prepare_ctc_transcript(text: str) -> str:
-    """Uppercase and strip characters not in the wav2vec2-base-960h vocabulary."""
+    """Uppercase and strip characters not in the CTC vocabulary."""
     return _TRANSCRIPT_KEEP.sub("", text.upper()).strip()
 
 
@@ -112,7 +112,7 @@ def _train_lora(
         optimizer.zero_grad()
 
         for step, sample in enumerate(train_samples):
-            # wav2vec2 CNN feature extractor requires a minimum input length
+            # WavLM CNN feature extractor requires a minimum input length
             if len(sample.waveform) < 400:
                 logger.warning(f"Skipping {sample.utterance_id}: waveform too short ({len(sample.waveform)} samples)")
                 continue
@@ -127,7 +127,7 @@ def _train_lora(
 
             # processor.tokenizer exists at runtime but is absent from HF type stubs.
             # Transcripts must be uppercased and stripped of non-vocab characters
-            # before CTC label encoding (wav2vec2-base-960h vocab is uppercase only).
+            # before CTC label encoding (vocab is uppercase only).
             labels = getattr(processor, "tokenizer")(
                 _prepare_ctc_transcript(sample.transcript),
                 return_tensors="pt",
@@ -211,7 +211,7 @@ def run_lora_train(
     """
     output_dir = Path(output_dir)
     # A100 GPUs use TF32 (10-bit mantissa) for matmul by default, which can
-    # produce NaN in attention dot-products with wav2vec2.  Use full float32.
+    # produce NaN in attention dot-products with WavLM.  Use full float32.
     torch.backends.cuda.matmul.allow_tf32 = False
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Speaker {speaker_id} | device: {device}")

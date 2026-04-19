@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from peft import LoraConfig, PeftModel, PeftMixedModel, TaskType, get_peft_model
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+from transformers import WavLMForCTC, Wav2Vec2Processor
 
 
 # Default LoRA hyperparameters — small rank keeps adapter lightweight
@@ -15,7 +15,10 @@ _LORA_DROPOUT = 0.05
 # Target the self-attention projections in every encoder layer
 _LORA_TARGET_MODULES = ["q_proj", "v_proj"]
 
-DEFAULT_MODEL_NAME = "facebook/wav2vec2-base-960h"
+# WavLM-base-plus fine-tuned on LibriSpeech 100h clean with a CTC head.
+# Acoustic profile extraction uses microsoft/wavlm-base-plus (pre-trained),
+# kept separate to preserve speaker identity information in the embeddings.
+DEFAULT_MODEL_NAME = "patrickvonplaten/wavlm-libri-clean-100h-base-plus"
 
 
 def build_lora_model(
@@ -27,7 +30,7 @@ def build_lora_model(
     target_modules: list[str] | None = None,
 ) -> tuple[PeftModel | PeftMixedModel, Wav2Vec2Processor]:
     """
-    Load wav2vec2-base-960h and wrap it with LoRA adapters.
+    Load a WavLM-base-plus CTC model and wrap it with LoRA adapters.
 
     All base model parameters are frozen; only the LoRA weights are trainable.
 
@@ -45,7 +48,7 @@ def build_lora_model(
     if target_modules is None:
         target_modules = _LORA_TARGET_MODULES
 
-    base_model = Wav2Vec2ForCTC.from_pretrained(model_name, cache_dir=cache_dir)
+    base_model = WavLMForCTC.from_pretrained(model_name, cache_dir=cache_dir)
     processor = Wav2Vec2Processor.from_pretrained(model_name, cache_dir=cache_dir)
 
     lora_config = LoraConfig(
@@ -91,13 +94,13 @@ class SpeakerConditionedLoraModel(nn.Module):
     Wraps a PEFT LoRA model with additive speaker embedding injection.
 
     The speaker centroid (mean+std of WavLM-base-plus frames, 1536-dim) is
-    projected to wav2vec2's hidden size (768) and added as a constant bias to
+    projected to WavLM's hidden size (768) and added as a constant bias to
     every time step at the feature_projection output — before the transformer
     encoder.  Both the LoRA adapter weights and the speaker_projection layer
     are trainable.
     """
 
-    _HIDDEN_SIZE = 768  # wav2vec2-base hidden dim
+    _HIDDEN_SIZE = 768  # WavLM-base hidden dim
 
     def __init__(
         self,
@@ -111,13 +114,13 @@ class SpeakerConditionedLoraModel(nn.Module):
 
         registered = False
         for name, module in peft_model.named_modules():
-            if name.endswith("wav2vec2.feature_projection"):
+            if name.endswith("wavlm.feature_projection"):
                 module.register_forward_hook(self._inject_bias)
                 registered = True
                 break
         if not registered:
             raise RuntimeError(
-                "Could not locate wav2vec2.feature_projection in the PEFT model."
+                "Could not locate wavlm.feature_projection in the PEFT model."
             )
 
     @property
@@ -156,7 +159,7 @@ def build_conditioned_lora_model(
     lora_dropout: float = _LORA_DROPOUT,
     target_modules: list[str] | None = None,
 ) -> tuple[SpeakerConditionedLoraModel, Wav2Vec2Processor]:
-    """Load wav2vec2 with LoRA adapters wrapped in speaker-conditioning."""
+    """Load WavLM-base-plus CTC with LoRA adapters wrapped in speaker-conditioning."""
     peft_model, processor = build_lora_model(
         model_name=model_name,
         cache_dir=cache_dir,
@@ -201,7 +204,7 @@ def load_speaker_adapter(
     """
     adapter_path = Path(checkpoint_dir) / speaker_id
 
-    base_model = Wav2Vec2ForCTC.from_pretrained(model_name, cache_dir=cache_dir)
+    base_model = WavLMForCTC.from_pretrained(model_name, cache_dir=cache_dir)
     processor = Wav2Vec2Processor.from_pretrained(model_name, cache_dir=cache_dir)
 
     peft_model = PeftModel.from_pretrained(base_model, str(adapter_path))

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from src.asr_adaptation.models.wav2vec_lora import (
+from src.asr_adaptation.models.wavlm_lora import (
     save_speaker_adapter,
     trainable_parameter_summary,
 )
@@ -80,9 +80,9 @@ def test_save_speaker_adapter_returns_correct_path(tmp_path: Path) -> None:
 
 def test_build_lora_model_freezes_base_parameters() -> None:
     """All non-LoRA parameters must have requires_grad=False."""
-    with patch("src.asr_adaptation.models.wav2vec_lora.Wav2Vec2ForCTC") as MockModel, \
-         patch("src.asr_adaptation.models.wav2vec_lora.Wav2Vec2Processor"), \
-         patch("src.asr_adaptation.models.wav2vec_lora.get_peft_model") as mock_peft:
+    with patch("src.asr_adaptation.models.wavlm_lora.WavLMForCTC") as MockModel, \
+         patch("src.asr_adaptation.models.wavlm_lora.Wav2Vec2Processor"), \
+         patch("src.asr_adaptation.models.wavlm_lora.get_peft_model") as mock_peft:
 
         fake_base = MagicMock()
         MockModel.from_pretrained.return_value = fake_base
@@ -91,7 +91,7 @@ def test_build_lora_model_freezes_base_parameters() -> None:
         base_param = torch.nn.Parameter(torch.zeros(10), requires_grad=False)
         mock_peft.return_value.parameters.return_value = [lora_param, base_param]
 
-        from src.asr_adaptation.models.wav2vec_lora import build_lora_model
+        from src.asr_adaptation.models.wavlm_lora import build_lora_model
         peft_model, _ = build_lora_model()
 
         summary = trainable_parameter_summary(peft_model)
@@ -100,12 +100,12 @@ def test_build_lora_model_freezes_base_parameters() -> None:
 
 
 def test_build_lora_model_uses_correct_target_modules() -> None:
-    with patch("src.asr_adaptation.models.wav2vec_lora.Wav2Vec2ForCTC"), \
-         patch("src.asr_adaptation.models.wav2vec_lora.Wav2Vec2Processor"), \
-         patch("src.asr_adaptation.models.wav2vec_lora.get_peft_model"), \
-         patch("src.asr_adaptation.models.wav2vec_lora.LoraConfig") as MockLoraConfig:
+    with patch("src.asr_adaptation.models.wavlm_lora.WavLMForCTC"), \
+         patch("src.asr_adaptation.models.wavlm_lora.Wav2Vec2Processor"), \
+         patch("src.asr_adaptation.models.wavlm_lora.get_peft_model"), \
+         patch("src.asr_adaptation.models.wavlm_lora.LoraConfig") as MockLoraConfig:
 
-        from src.asr_adaptation.models.wav2vec_lora import build_lora_model
+        from src.asr_adaptation.models.wavlm_lora import build_lora_model
         build_lora_model()
 
         call_kwargs = MockLoraConfig.call_args.kwargs

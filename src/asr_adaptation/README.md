@@ -1,6 +1,6 @@
 # Phase 2 — ASR Speaker Adaptation
 
-Fine-tune `facebook/wav2vec2-base-960h` with per-speaker LoRA adapters using
+Fine-tune `microsoft/wavlm-base-plus` with per-speaker LoRA adapters using
 labeled L2-ARCTIC utterances. Evaluate WER improvement and data efficiency.
 
 All commands are run from the **project root**.
@@ -149,9 +149,9 @@ uv sync
 
 # 3. Download model weights (first time only, run interactively):
 uv run python -c "
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-Wav2Vec2ForCTC.from_pretrained('facebook/wav2vec2-base-960h', cache_dir='data/cache/huggingface')
-Wav2Vec2Processor.from_pretrained('facebook/wav2vec2-base-960h', cache_dir='data/cache/huggingface')
+from transformers import WavLMForCTC, Wav2Vec2Processor
+WavLMForCTC.from_pretrained('microsoft/wavlm-base-plus', cache_dir='data/cache/huggingface')
+Wav2Vec2Processor.from_pretrained('microsoft/wavlm-base-plus', cache_dir='data/cache/huggingface')
 "
 
 # 4. Submit jobs
@@ -179,7 +179,7 @@ rsync -avz username@cluster:~/MastersThesis/data/processed/asr_adaptation/ \
 ```bash
 # All Phase 2 tests
 uv run pytest tests/test_l2arctic_transcriptions.py \
-               tests/test_wav2vec_lora.py \
+               tests/test_wavlm_lora.py \
                tests/test_wer.py \
                tests/test_baseline_eval.py \
                tests/test_lora_train.py \
@@ -202,7 +202,7 @@ src/asr_adaptation/
 ├── metrics/
 │   └── wer.py                      # compute_wer() with text normalization
 ├── models/
-│   └── wav2vec_lora.py             # build_lora_model(), save/load adapter
+│   └── wavlm_lora.py             # build_lora_model(), save/load adapter
 ├── pipeline/
 │   ├── baseline_eval.py            # Ticket #4
 │   ├── lora_train.py               # Ticket #5 ✓

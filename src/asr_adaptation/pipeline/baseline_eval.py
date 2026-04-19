@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from loguru import logger
 from pydantic import BaseModel
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+from transformers import WavLMForCTC, Wav2Vec2Processor
 
 from src.asr_adaptation.data.l2arctic_transcriptions import (
     list_l2arctic_samples_with_transcripts,
@@ -28,7 +28,7 @@ SAA_REFERENCE = (
     "at the train station"
 )
 
-MODEL_NAME = "facebook/wav2vec2-base-960h"
+MODEL_NAME = "patrickvonplaten/wavlm-libri-clean-100h-base-plus"
 
 
 class BaselineRow(BaseModel):
@@ -52,7 +52,7 @@ def _list_l2arctic_speakers(outer_zip_path: str) -> list[str]:
 def run_l2arctic_baseline(
     l2arctic_zip: str,
     processor: Wav2Vec2Processor,
-    model: Wav2Vec2ForCTC,
+    model: WavLMForCTC,
     device: torch.device,
     speaker_filter: str | None = None,
 ) -> list[BaselineRow]:
@@ -85,7 +85,7 @@ def run_l2arctic_baseline(
 def run_saa_baseline(
     saa_zip: str,
     processor: Wav2Vec2Processor,
-    model: Wav2Vec2ForCTC,
+    model: WavLMForCTC,
     device: torch.device,
 ) -> list[BaselineRow]:
     rows: list[BaselineRow] = []
@@ -133,7 +133,7 @@ def main(args: argparse.Namespace) -> None:
 
     logger.info(f"Loading {MODEL_NAME} ...")
     processor = Wav2Vec2Processor.from_pretrained(MODEL_NAME, cache_dir=args.cache_dir)
-    model = Wav2Vec2ForCTC.from_pretrained(MODEL_NAME, cache_dir=args.cache_dir)
+    model = WavLMForCTC.from_pretrained(MODEL_NAME, cache_dir=args.cache_dir)
     torch.nn.Module.to(model, device)
     model.eval()
 

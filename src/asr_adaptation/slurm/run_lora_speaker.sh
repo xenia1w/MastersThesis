@@ -50,8 +50,8 @@ export TRANSFORMERS_OFFLINE=1      # models should already be cached after basel
 source .venv/bin/activate
 
 mkdir -p logs \
-         data/processed/asr_adaptation/lora_weights \
-         data/processed/asr_adaptation/adaptation_results
+         data/processed/asr_adaptation/wavlm_lora_weights \
+         data/processed/asr_adaptation/wavlm_adaptation_results
 
 echo "=== LoRA training for speaker $SPEAKER started: $(date) ==="
 echo "Array task ID: $SLURM_ARRAY_TASK_ID | Host: $(hostname)"
@@ -59,7 +59,7 @@ echo "Array task ID: $SLURM_ARRAY_TASK_ID | Host: $(hostname)"
 python -m src.asr_adaptation.pipeline.lora_train \
     --speaker       "$SPEAKER" \
     --l2arctic-zip  data/raw/l2arctic_release_v5.0.zip \
-    --output-dir    data/processed/asr_adaptation \
+    --output-dir    data/processed/asr_adaptation/wavlm_lora \
     --cache-dir     data/cache/huggingface
 
 echo "=== LoRA training for speaker $SPEAKER finished: $(date) ==="

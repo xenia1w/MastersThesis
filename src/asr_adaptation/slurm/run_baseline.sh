@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
 # run_baseline.sh
-# Evaluate unadapted wav2vec2-base-960h on all L2-ARCTIC and SAA speakers.
-# Outputs WER CSVs to data/processed/asr_adaptation/baseline_wer/.
+# Evaluate unadapted wavlm-base-plus on all L2-ARCTIC and SAA speakers.
+# Outputs WER CSVs to data/processed/asr_adaptation/wavlm_baseline_wer/.
 #
 # Submit with:  sbatch src/asr_adaptation/slurm/run_baseline.sh
 # Monitor with: squeue -u $USER
@@ -37,7 +37,7 @@ export TRANSFORMERS_OFFLINE=0      # set to 1 once models are cached on the clus
 
 source .venv/bin/activate
 
-mkdir -p logs data/processed/asr_adaptation/baseline_wer
+mkdir -p logs data/processed/asr_adaptation/wavlm_baseline_wer
 
 echo "=== Baseline evaluation started: $(date) ==="
 echo "Running on host: $(hostname)"
@@ -45,7 +45,7 @@ echo "Running on host: $(hostname)"
 python -m src.asr_adaptation.pipeline.baseline_eval \
     --l2arctic-zip  data/raw/l2arctic_release_v5.0.zip \
     --saa-zip       data/raw/archive.zip \
-    --output-dir    data/processed/asr_adaptation/baseline_wer \
+    --output-dir    data/processed/asr_adaptation/wavlm_baseline_wer \
     --cache-dir     data/cache/huggingface
 
 echo "=== Baseline evaluation finished: $(date) ==="
