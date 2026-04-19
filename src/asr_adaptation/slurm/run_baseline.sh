@@ -16,7 +16,7 @@
 #SBATCH --output=logs/baseline_%j.out
 #SBATCH --error=logs/baseline_%j.err
 
-#SBATCH --partition=gpu_short
+#SBATCH --partition=gpu
 
 #SBATCH --account=qu
 
