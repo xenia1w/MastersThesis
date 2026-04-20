@@ -87,7 +87,7 @@ def _train_lora(
     train_samples: list[L2ArcticTranscriptSample],
     processor: Wav2Vec2Processor,
     device: torch.device,
-    speaker_embedding: torch.Tensor,
+    speaker_embedding: torch.Tensor | None,
     n_epochs: int = _N_EPOCHS,
     learning_rate: float = _LEARNING_RATE,
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
@@ -169,7 +169,7 @@ def _get_hypotheses(
     eval_samples: list[L2ArcticTranscriptSample],
     processor: Wav2Vec2Processor,
     device: torch.device,
-    speaker_embedding: torch.Tensor,
+    speaker_embedding: torch.Tensor | None,
 ) -> list[str]:
     """Transcribe all eval samples and return hypotheses."""
     model.eval()
@@ -192,6 +192,7 @@ def run_lora_train(
     seed: int = 0,
     wavlm_model: str = "microsoft/wavlm-base-plus",
     profile_extractor: str = "wav2vec2",
+    no_profile: bool = False,
 ) -> list[AdaptationRow]:
     """
     Fine-tune a LoRA adapter for one speaker and evaluate WER before and after.
@@ -232,8 +233,11 @@ def run_lora_train(
     actual_n_train = len(train_samples)
     logger.info(f"Train: {actual_n_train} utterances | Eval: {len(eval_samples)} utterances")
 
-    # Compute speaker centroid from training utterances
-    if profile_extractor == "wavlm":
+    # Compute speaker centroid from training utterances (skipped in LoRA-only mode)
+    if no_profile:
+        speaker_centroid = None
+        logger.info("Profile injection disabled — running LoRA-only mode.")
+    elif profile_extractor == "wavlm":
         speaker_centroid = compute_speaker_centroid(
             train_samples, device=device, model_name=wavlm_model, cache_dir=cache_dir
         ).to(device)
@@ -245,6 +249,10 @@ def run_lora_train(
     # Build model
     logger.info("Building LoRA model ...")
     model, processor = build_conditioned_lora_model(cache_dir=cache_dir)
+    if no_profile:
+        # Freeze the projection so it doesn't appear in trainable param count
+        for param in model.speaker_projection.parameters():
+            param.requires_grad = False
     torch.nn.Module.to(model, device)
     summary = trainable_parameter_summary(model)
     logger.info(
@@ -323,6 +331,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-epochs",      type=int, default=_N_EPOCHS,        help="Training epochs (default: 10)")
     parser.add_argument("--seed",              type=int, default=0,           help="Random seed (default: 0)")
     parser.add_argument("--profile-extractor", default="wav2vec2",            help="Profile extractor: 'wav2vec2' (default) or 'wavlm'")
+    parser.add_argument("--no-profile",        action="store_true",           help="LoRA-only mode: disable speaker profile injection entirely")
     args = parser.parse_args()
 
     run_lora_train(
@@ -335,4 +344,5 @@ if __name__ == "__main__":
         n_epochs=args.n_epochs,
         seed=args.seed,
         profile_extractor=args.profile_extractor,
+        no_profile=args.no_profile,
     )
