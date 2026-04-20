@@ -40,6 +40,7 @@ from src.acoustic_feature_extraction.models.speaker_stability import (
     SpeakerStabilityPayload,
     SpeakerStabilitySummary,
 )
+from src.acoustic_feature_extraction.models.wav2vec2_encoder import Wav2Vec2ProfileExtractor
 from src.acoustic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 SampleT = TypeVar("SampleT", L2ArcticSample, SAASample, SAASegmentSample)
@@ -78,6 +79,11 @@ def _default_representations() -> List[RepresentationConfig]:
             name="wavlm_sv_xvector",
             model_name="microsoft/wavlm-base-plus-sv",
             embedding_type="xvector",
+        ),
+        RepresentationConfig(
+            name="wav2vec2_meanstd",
+            model_name="facebook/wav2vec2-base",
+            embedding_type="wav2vec2_meanstd",
         ),
     ]
 
@@ -273,6 +279,13 @@ def _build_runtimes(config: SpeakerStabilityConfig) -> List[RepresentationRuntim
                     xvector_encoder=WavLMEncoder(model_name=rep.model_name),
                 )
             )
+        elif rep.embedding_type == "wav2vec2_meanstd":
+            runtimes.append(
+                RepresentationRuntime(
+                    config=rep,
+                    wav2vec2_encoder=Wav2Vec2ProfileExtractor(model_name=rep.model_name),
+                )
+            )
         else:
             runtimes.append(
                 RepresentationRuntime(
@@ -293,6 +306,11 @@ def _encode_single_embedding(
         if runtime.xvector_encoder is None:
             raise RuntimeError(f"Missing xvector encoder for {runtime.config.name}")
         return runtime.xvector_encoder.encode_utterance(waveform, sr)
+    if runtime.config.embedding_type == "wav2vec2_meanstd":
+        if runtime.wav2vec2_encoder is None:
+            raise RuntimeError(f"Missing wav2vec2 encoder for {runtime.config.name}")
+        frames = runtime.wav2vec2_encoder.encode_frames(waveform, sr)
+        return mean_std_pool(frames)
     if runtime.base_encoder is None:
         raise RuntimeError(f"Missing base encoder for {runtime.config.name}")
     frames = runtime.base_encoder.encode_frames(waveform, sr)

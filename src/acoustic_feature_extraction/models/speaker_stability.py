@@ -18,10 +18,11 @@ else:
         class Config:
             arbitrary_types_allowed = True
 
+from src.acoustic_feature_extraction.models.wav2vec2_encoder import Wav2Vec2ProfileExtractor
 from src.acoustic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 DatasetName = Literal["l2arctic", "saa"]
-EmbeddingType = Literal["mean_std", "xvector"]
+EmbeddingType = Literal["mean_std", "xvector", "wav2vec2_meanstd"]
 
 
 class KFloatMap(BaseModel):
@@ -46,6 +47,7 @@ class RepresentationRuntime(TensorModel):
     config: RepresentationConfig
     xvector_encoder: WavLMEncoder | None = None
     base_encoder: WavLMBaseEncoder | None = None
+    wav2vec2_encoder: Wav2Vec2ProfileExtractor | None = None
 
 
 class RepresentationEmbeddings(TensorModel):

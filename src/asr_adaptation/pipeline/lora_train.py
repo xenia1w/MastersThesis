@@ -18,6 +18,7 @@ from src.asr_adaptation.data.l2arctic_transcriptions import (
 from src.asr_adaptation.inference.transcribe import transcribe
 from src.asr_adaptation.metrics.wer import compute_wer
 from src.asr_adaptation.data.speaker_embeddings import compute_speaker_centroid
+from src.asr_adaptation.data.wav2vec2_speaker_embeddings import compute_speaker_centroid_wav2vec2
 from src.asr_adaptation.models.wav2vec_lora import (
     build_conditioned_lora_model,
     save_conditioned_speaker_adapter,
@@ -190,6 +191,7 @@ def run_lora_train(
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
     seed: int = 0,
     wavlm_model: str = "microsoft/wavlm-base-plus",
+    profile_extractor: str = "wav2vec2",
 ) -> list[AdaptationRow]:
     """
     Fine-tune a LoRA adapter for one speaker and evaluate WER before and after.
@@ -230,10 +232,15 @@ def run_lora_train(
     actual_n_train = len(train_samples)
     logger.info(f"Train: {actual_n_train} utterances | Eval: {len(eval_samples)} utterances")
 
-    # Compute speaker centroid from training utterances (WavLM mean+std)
-    speaker_centroid = compute_speaker_centroid(
-        train_samples, device=device, model_name=wavlm_model, cache_dir=cache_dir
-    ).to(device)
+    # Compute speaker centroid from training utterances
+    if profile_extractor == "wavlm":
+        speaker_centroid = compute_speaker_centroid(
+            train_samples, device=device, model_name=wavlm_model, cache_dir=cache_dir
+        ).to(device)
+    else:
+        speaker_centroid = compute_speaker_centroid_wav2vec2(
+            train_samples, device=device, cache_dir=cache_dir
+        ).to(device)
 
     # Build model
     logger.info("Building LoRA model ...")
@@ -314,7 +321,8 @@ if __name__ == "__main__":
     parser.add_argument("--n-train",       type=int, default=_N_TRAIN_DEFAULT, help="Training utterances (default: all available)")
     parser.add_argument("--n-eval",        type=int, default=_N_EVAL,          help="Eval utterances (default: 100)")
     parser.add_argument("--n-epochs",      type=int, default=_N_EPOCHS,        help="Training epochs (default: 10)")
-    parser.add_argument("--seed",          type=int, default=0,                help="Random seed (default: 0)")
+    parser.add_argument("--seed",              type=int, default=0,           help="Random seed (default: 0)")
+    parser.add_argument("--profile-extractor", default="wav2vec2",            help="Profile extractor: 'wav2vec2' (default) or 'wavlm'")
     args = parser.parse_args()
 
     run_lora_train(
@@ -326,4 +334,5 @@ if __name__ == "__main__":
         n_eval=args.n_eval,
         n_epochs=args.n_epochs,
         seed=args.seed,
+        profile_extractor=args.profile_extractor,
     )
