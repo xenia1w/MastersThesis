@@ -17,10 +17,9 @@ from src.asr_adaptation.data.l2arctic_transcriptions import (
 )
 from src.asr_adaptation.inference.transcribe import transcribe
 from src.asr_adaptation.metrics.wer import compute_wer
-from src.asr_adaptation.data.speaker_embeddings import compute_speaker_centroid
 from src.asr_adaptation.models.wavlm_lora import (
-    build_conditioned_lora_model,
-    save_conditioned_speaker_adapter,
+    build_lora_model,
+    save_speaker_adapter,
     trainable_parameter_summary,
 )
 
@@ -86,7 +85,6 @@ def _train_lora(
     train_samples: list[L2ArcticTranscriptSample],
     processor: Wav2Vec2Processor,
     device: torch.device,
-    speaker_embedding: torch.Tensor,
     n_epochs: int = _N_EPOCHS,
     learning_rate: float = _LEARNING_RATE,
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
@@ -133,7 +131,7 @@ def _train_lora(
                 return_tensors="pt",
             ).input_ids.to(device)
 
-            output = model(input_values=input_values, labels=labels, speaker_embedding=speaker_embedding)
+            output = model(input_values=input_values, labels=labels)
             if torch.isnan(output.loss):
                 logger.warning(f"NaN loss at epoch {epoch + 1} step {step} — skipping")
                 # Clear any partial gradients so the NaN doesn't pollute the window
@@ -168,12 +166,11 @@ def _get_hypotheses(
     eval_samples: list[L2ArcticTranscriptSample],
     processor: Wav2Vec2Processor,
     device: torch.device,
-    speaker_embedding: torch.Tensor,
 ) -> list[str]:
     """Transcribe all eval samples and return hypotheses."""
     model.eval()
     return [
-        transcribe(sample.waveform, processor, model, device, speaker_embedding=speaker_embedding)
+        transcribe(sample.waveform, processor, model, device)
         for sample in eval_samples
     ]
 
@@ -189,7 +186,6 @@ def run_lora_train(
     learning_rate: float = _LEARNING_RATE,
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
     seed: int = 0,
-    wavlm_model: str = "microsoft/wavlm-base-plus",
 ) -> list[AdaptationRow]:
     """
     Fine-tune a LoRA adapter for one speaker and evaluate WER before and after.
@@ -230,14 +226,9 @@ def run_lora_train(
     actual_n_train = len(train_samples)
     logger.info(f"Train: {actual_n_train} utterances | Eval: {len(eval_samples)} utterances")
 
-    # Compute speaker centroid from training utterances (WavLM mean+std)
-    speaker_centroid = compute_speaker_centroid(
-        train_samples, device=device, model_name=wavlm_model, cache_dir=cache_dir
-    ).to(device)
-
     # Build model
     logger.info("Building LoRA model ...")
-    model, processor = build_conditioned_lora_model(cache_dir=cache_dir)
+    model, processor = build_lora_model(cache_dir=cache_dir)
     torch.nn.Module.to(model, device)
     summary = trainable_parameter_summary(model)
     logger.info(
@@ -247,18 +238,18 @@ def run_lora_train(
 
     # Baseline evaluation (before training)
     logger.info("Evaluating baseline (no adaptation) ...")
-    hypotheses_baseline = _get_hypotheses(model, eval_samples, processor, device, speaker_centroid)
+    hypotheses_baseline = _get_hypotheses(model, eval_samples, processor, device)
 
     # Fine-tune
     logger.info(f"Fine-tuning on {actual_n_train} utterances ...")
-    _train_lora(model, train_samples, processor, device, speaker_centroid, n_epochs, learning_rate, grad_accum_steps)
+    _train_lora(model, train_samples, processor, device, n_epochs, learning_rate, grad_accum_steps)
 
     # Adapted evaluation (after training)
     logger.info("Evaluating adapted model ...")
-    hypotheses_adapted = _get_hypotheses(model, eval_samples, processor, device, speaker_centroid)
+    hypotheses_adapted = _get_hypotheses(model, eval_samples, processor, device)
 
-    # Save LoRA adapter + speaker projection
-    adapter_path = save_conditioned_speaker_adapter(model, speaker_id, output_dir / "lora_weights")
+    # Save LoRA adapter weights
+    adapter_path = save_speaker_adapter(model, speaker_id, output_dir / "lora_weights")
     logger.info(f"Saved LoRA adapter → {adapter_path}")
 
     # Build result rows
