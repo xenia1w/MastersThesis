@@ -60,11 +60,16 @@ def test_save_speaker_adapter_creates_directory(tmp_path: Path) -> None:
     assert result_path.is_dir()
 
 
-def test_save_speaker_adapter_calls_save_pretrained(tmp_path: Path) -> None:
+def test_save_speaker_adapter_saves_trainable_weights(tmp_path: Path) -> None:
     model = MagicMock()
+    param = torch.nn.Parameter(torch.ones(4), requires_grad=True)
+    model.named_parameters.return_value = [("lora_A", param)]
+
     save_speaker_adapter(model, "ASI", tmp_path)
 
-    model.save_pretrained.assert_called_once_with(str(tmp_path / "ASI"))
+    saved = torch.load(tmp_path / "ASI" / "adapter_weights.pt", weights_only=True)
+    assert "lora_A" in saved
+    assert torch.equal(saved["lora_A"], param.data)
 
 
 def test_save_speaker_adapter_returns_correct_path(tmp_path: Path) -> None:
@@ -82,19 +87,18 @@ def test_build_lora_model_freezes_base_parameters() -> None:
     """All non-LoRA parameters must have requires_grad=False."""
     with patch("src.asr_adaptation.models.wavlm_lora.WavLMForCTC") as MockModel, \
          patch("src.asr_adaptation.models.wavlm_lora.Wav2Vec2Processor"), \
-         patch("src.asr_adaptation.models.wavlm_lora.get_peft_model") as mock_peft:
-
-        fake_base = MagicMock()
-        MockModel.from_pretrained.return_value = fake_base
+         patch("src.asr_adaptation.models.wavlm_lora._patch_wavlm_attention_for_lora"):
 
         lora_param = torch.nn.Parameter(torch.zeros(10), requires_grad=True)
         base_param = torch.nn.Parameter(torch.zeros(10), requires_grad=False)
-        mock_peft.return_value.parameters.return_value = [lora_param, base_param]
+        fake_model = MagicMock()
+        fake_model.parameters.return_value = [lora_param, base_param]
+        MockModel.from_pretrained.return_value = fake_model
 
         from src.asr_adaptation.models.wavlm_lora import build_lora_model
-        peft_model, _ = build_lora_model()
+        model, _ = build_lora_model()
 
-        summary = trainable_parameter_summary(peft_model)
+        summary = trainable_parameter_summary(model)
         assert summary["trainable"] == 10
         assert summary["frozen"] == 10
 
@@ -102,7 +106,7 @@ def test_build_lora_model_freezes_base_parameters() -> None:
 def test_build_lora_model_uses_correct_target_modules() -> None:
     with patch("src.asr_adaptation.models.wavlm_lora.WavLMForCTC"), \
          patch("src.asr_adaptation.models.wavlm_lora.Wav2Vec2Processor"), \
-         patch("src.asr_adaptation.models.wavlm_lora.get_peft_model"), \
+         patch("src.asr_adaptation.models.wavlm_lora._patch_wavlm_attention_for_lora"), \
          patch("src.asr_adaptation.models.wavlm_lora.LoraConfig") as MockLoraConfig:
 
         from src.asr_adaptation.models.wavlm_lora import build_lora_model

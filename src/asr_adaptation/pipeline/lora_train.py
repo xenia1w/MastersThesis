@@ -90,9 +90,6 @@ def _train_lora(
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
 ) -> None:
     """Fine-tune LoRA weights on the training samples using CTC loss."""
-    # Prevent NaN loss from crashing training when a sample's label sequence is
-    # longer than the encoder output (CTC constraint violation).
-    model.config.ctc_zero_infinity = True  # type: ignore[union-attr]
     # Spec augment (feature masking) is designed for self-supervised pre-training.
     # During fine-tuning its randomly-initialised masked_spec_embed causes NaN
     # loss on CUDA/TF32 hardware (A100), so we disable it here.
@@ -115,6 +112,29 @@ def _train_lora(
                 logger.warning(f"Skipping {sample.utterance_id}: waveform too short ({len(sample.waveform)} samples)")
                 continue
 
+            # processor.tokenizer exists at runtime but is absent from HF type stubs.
+            # Transcripts must be uppercased and stripped of non-vocab characters
+            # before CTC label encoding (vocab is uppercase only).
+            label_text = _prepare_ctc_transcript(sample.transcript)
+            labels = getattr(processor, "tokenizer")(
+                label_text,
+                return_tensors="pt",
+            ).input_ids.to(device)
+
+            # CTC constraint: label length must not exceed encoder output length.
+            # WavLM's CNN subsampler produces ~waveform_length/320 frames.
+            # Violating this makes CTC loss undefined (inf); skipping here avoids
+            # relying on ctc_zero_infinity which silently zeros the gradient and
+            # causes blank collapse.
+            n_encoder_frames = len(sample.waveform) // 320
+            n_labels = labels.shape[-1]
+            if n_labels > n_encoder_frames:
+                logger.warning(
+                    f"Skipping {sample.utterance_id}: label length {n_labels} "
+                    f"> encoder frames {n_encoder_frames}"
+                )
+                continue
+
             inputs = processor(
                 sample.waveform.numpy(),
                 sampling_rate=sample.sampling_rate,
@@ -122,14 +142,6 @@ def _train_lora(
                 padding=True,
             )
             input_values = inputs.input_values.to(device)
-
-            # processor.tokenizer exists at runtime but is absent from HF type stubs.
-            # Transcripts must be uppercased and stripped of non-vocab characters
-            # before CTC label encoding (vocab is uppercase only).
-            labels = getattr(processor, "tokenizer")(
-                _prepare_ctc_transcript(sample.transcript),
-                return_tensors="pt",
-            ).input_ids.to(device)
 
             output = model(input_values=input_values, labels=labels)
             if torch.isnan(output.loss):

@@ -93,7 +93,7 @@ def _patch_wavlm_attention_for_lora(model: nn.Module) -> None:
     """
     for module in model.modules():
         if isinstance(module, WavLMAttention):
-            module.torch_multi_head_self_attention = types.MethodType(
+            module.torch_multi_head_self_attention = types.MethodType(  # type: ignore[method-assign]
                 _lora_aware_mhsa, module
             )
 
