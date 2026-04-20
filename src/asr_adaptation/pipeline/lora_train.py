@@ -35,7 +35,7 @@ def _prepare_ctc_transcript(text: str) -> str:
 _N_EVAL = 100
 _N_TRAIN_DEFAULT = None  # use all available training utterances (~1,032 per speaker)
 _N_EPOCHS = 10
-_LEARNING_RATE = 1e-5
+_LEARNING_RATE = 1e-4
 _GRAD_ACCUM_STEPS = 4
 
 

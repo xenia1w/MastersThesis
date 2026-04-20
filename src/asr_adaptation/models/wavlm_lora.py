@@ -61,6 +61,7 @@ def build_lora_model(
     )
 
     peft_model = get_peft_model(base_model, lora_config)
+    peft_model.enable_adapter_layers()
     return peft_model, processor
 
 
