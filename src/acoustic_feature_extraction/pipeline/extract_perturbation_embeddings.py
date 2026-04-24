@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from src.acoustic_feature_extraction.features.utterance_embedding import mean_pool, mean_std_pool
+from src.acoustic_feature_extraction.models.wav2vec2_encoder import Wav2Vec2ProfileExtractor
 from src.acoustic_feature_extraction.models.wavlm_encoder import WavLMBaseEncoder, WavLMEncoder
 
 DatasetName = Literal["l2arctic", "saa"]
@@ -46,6 +47,10 @@ class ExtractEmbeddingsConfig(BaseModel):
     max_items: int | None = Field(
         default=None,
         description="Optional limit for number of manifest rows to process.",
+    )
+    encoder_type: str = Field(
+        default="wavlm",
+        description="Encoder family for frame-level embeddings: 'wavlm' or 'wav2vec2'.",
     )
 
 
@@ -203,8 +208,15 @@ def run_extract_perturbation_embeddings(config: ExtractEmbeddingsConfig) -> Path
         raise RuntimeError("No perturbation rows found to process.")
 
     out_root = Path(config.out_root)
-    base_encoder = WavLMBaseEncoder(model_name=config.base_model_name)
-    sv_encoder = WavLMEncoder(model_name=config.sv_model_name)
+    use_wav2vec2 = config.encoder_type == "wav2vec2"
+    if use_wav2vec2:
+        wav2vec2_encoder = Wav2Vec2ProfileExtractor(model_name=config.base_model_name)
+        base_encoder = None
+        sv_encoder = None
+    else:
+        wav2vec2_encoder = None
+        base_encoder = WavLMBaseEncoder(model_name=config.base_model_name)
+        sv_encoder = WavLMEncoder(model_name=config.sv_model_name)
     manifest_out_rows: List[EmbeddingManifestRow] = []
 
     for row in tqdm(perturbation_rows, desc="Extracting perturbation embeddings", unit="wav"):
@@ -213,10 +225,19 @@ def run_extract_perturbation_embeddings(config: ExtractEmbeddingsConfig) -> Path
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
         waveform, sr = _load_audio(audio_path=audio_path, target_sr=config.target_sr)
-        frames = base_encoder.encode_frames(waveform, sr)
-        emb_mean = mean_pool(frames)
-        emb_meanstd = mean_std_pool(frames)
-        emb_xvector = sv_encoder.encode_utterance(waveform, sr)
+        if use_wav2vec2:
+            assert wav2vec2_encoder is not None
+            frames = wav2vec2_encoder.encode_frames(waveform, sr)
+            emb_mean = mean_pool(frames)
+            emb_meanstd = mean_std_pool(frames)
+            emb_xvector = torch.empty(0)
+        else:
+            assert base_encoder is not None
+            assert sv_encoder is not None
+            frames = base_encoder.encode_frames(waveform, sr)
+            emb_mean = mean_pool(frames)
+            emb_meanstd = mean_std_pool(frames)
+            emb_xvector = sv_encoder.encode_utterance(waveform, sr)
 
         out_path = _embedding_output_path(out_root=out_root, row=row)
         _save_embeddings_payload(
@@ -305,6 +326,12 @@ def parse_args(argv: Sequence[str]) -> ExtractEmbeddingsConfig:
         default=None,
         help="Optional cap on number of files to process.",
     )
+    parser.add_argument(
+        "--encoder-type",
+        default="wavlm",
+        choices=["wavlm", "wav2vec2"],
+        help="Encoder family for frame-level embeddings (default: wavlm).",
+    )
 
     parsed = parser.parse_args(list(argv))
     return ExtractEmbeddingsConfig(
@@ -316,6 +343,7 @@ def parse_args(argv: Sequence[str]) -> ExtractEmbeddingsConfig:
         sv_model_name=parsed.sv_model_name,
         target_sr=parsed.target_sr,
         max_items=parsed.max_items,
+        encoder_type=parsed.encoder_type,
     )
 
 

@@ -133,14 +133,18 @@ class SpeakerConditionedLoraModel(nn.Module):
     def forward(
         self,
         input_values: torch.Tensor,
-        speaker_embedding: torch.Tensor,
+        speaker_embedding: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
         **kwargs,
     ):
         # speaker_embedding: [D] → broadcast as [1, 1, 768]
         #                    [B, D] → broadcast as [B, 1, 768]
-        bias = self.speaker_projection(speaker_embedding)
-        self._speaker_bias = bias.unsqueeze(0).unsqueeze(0) if bias.dim() == 1 else bias.unsqueeze(1)
+        #                    None   → no injection (LoRA-only mode)
+        if speaker_embedding is not None:
+            bias = self.speaker_projection(speaker_embedding)
+            self._speaker_bias = bias.unsqueeze(0).unsqueeze(0) if bias.dim() == 1 else bias.unsqueeze(1)
+        else:
+            self._speaker_bias = None
         try:
             return self.model(input_values=input_values, labels=labels, **kwargs)
         finally:
