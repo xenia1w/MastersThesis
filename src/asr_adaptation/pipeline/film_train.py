@@ -24,7 +24,7 @@ from src.asr_adaptation.pipeline.lora_train import (
 )
 
 _N_EVAL = 100
-_N_TRAIN_DEFAULT = 150
+_N_TRAIN_DEFAULT = None  # use all available training utterances
 _N_EPOCHS = 10
 _LEARNING_RATE = 1e-5
 _GRAD_ACCUM_STEPS = 4
