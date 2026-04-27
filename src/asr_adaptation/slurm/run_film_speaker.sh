@@ -13,12 +13,12 @@
 # =============================================================================
 
 #SBATCH --job-name=asr-film-w2v2
-#SBATCH --time=04:00:00
+#SBATCH --time=01:00:00
 #SBATCH --mem=24G
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:a100:1
 #SBATCH --array=0-23
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu_short
 #SBATCH --account=qu
 #SBATCH --chdir=/home/users/x/xenia1w/MastersThesis
 #SBATCH --output=/home/users/x/xenia1w/MastersThesis/logs/film_%x_%j.out
