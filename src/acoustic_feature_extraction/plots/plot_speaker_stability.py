@@ -5,7 +5,7 @@ import csv
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import DefaultDict, Dict, Iterable, List, Sequence, Tuple
+from typing import DefaultDict, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,6 +23,7 @@ def _load_rows(csv_path: Path) -> List[Dict[str, str]]:
 
 def _group_curves(
     rows: Iterable[Dict[str, str]],
+    metric: str = "cosine_to_full",
 ) -> Dict[str, Dict[str, List[Tuple[float, float]]]]:
     grouped: DefaultDict[str, DefaultDict[str, List[Tuple[float, float]]]] = defaultdict(
         lambda: defaultdict(list)
@@ -31,7 +32,10 @@ def _group_curves(
         representation = row["representation"]
         speaker_id = row["speaker_id"]
         seconds = float(row["cumulative_seconds"])
-        cosine = float(row["cosine_to_full"])
+        raw = row.get(metric, "")
+        if not raw or raw.lower() in ("none", "nan"):
+            continue
+        cosine = float(raw)
         grouped[representation][speaker_id].append((seconds, cosine))
 
     out: Dict[str, Dict[str, List[Tuple[float, float]]]] = {}
@@ -40,6 +44,18 @@ def _group_curves(
         for speaker_id, curve in by_speaker.items():
             out[representation][speaker_id] = sorted(curve, key=lambda x: x[0])
     return out
+
+
+def _compute_stability_means(
+    rows: List[Dict[str, str]],
+    col: str,
+) -> Dict[str, float]:
+    sums: DefaultDict[str, List[float]] = defaultdict(list)
+    for row in rows:
+        val = row.get(col, "")
+        if val and val.lower() not in ("", "none", "nan"):
+            sums[row["representation"]].append(float(val))
+    return {rep: sum(vs) / len(vs) for rep, vs in sums.items() if vs}
 
 
 def _aggregate_stats(
@@ -136,6 +152,8 @@ def _plot_representation_curves(
     out_dir: Path,
     formats: List[str],
     x_max_seconds: float,
+    file_suffix: str = "",
+    stability_mean: Optional[float] = None,
 ) -> None:
     fig, ax = plt.subplots(figsize=(9, 6))
     for _, points in curves.items():
@@ -158,6 +176,15 @@ def _plot_representation_curves(
         label="Mean ± Std",
     )
 
+    if stability_mean is not None:
+        ax.axvline(
+            stability_mean,
+            color="#e05c5c",
+            linestyle="--",
+            linewidth=1.5,
+            label=f"Mean stability ≈ {stability_mean:.1f}s",
+        )
+
     ax.set_title(f"Embedding Stability by Speaker: {representation}")
     ax.set_xlabel("Cumulative Speech (seconds)")
     ax.set_ylabel("Cosine Similarity to E_full")
@@ -167,7 +194,8 @@ def _plot_representation_curves(
     ax.grid(True, alpha=0.3)
     ax.legend(loc="lower right")
 
-    file_stem = out_dir / f"stability_{_sanitize_filename(representation)}"
+    stem = f"stability_{_sanitize_filename(representation)}{file_suffix}"
+    file_stem = out_dir / stem
     _save_plot(fig, file_stem, formats)
 
 
@@ -177,9 +205,12 @@ def _plot_aggregate_comparison(
     out_dir: Path,
     formats: List[str],
     x_max_seconds: float,
+    file_stem_name: str = "stability_aggregate_mean_std",
+    stability_means: Optional[Dict[str, float]] = None,
 ) -> None:
     fig, ax = plt.subplots(figsize=(9, 6))
     all_curves: Dict[str, List[Tuple[float, float]]] = {}
+    rep_colors: Dict[str, str] = {}
     for representation, stats in sorted(stats_by_representation.items()):
         if not stats:
             continue
@@ -188,10 +219,22 @@ def _plot_aggregate_comparison(
         stds = np.array([s for _, _, s in stats], dtype=np.float64)
         lower = np.clip(means - stds, 0.0, 1.0)
         upper = np.clip(means + stds, 0.0, 1.0)
-        ax.plot(ks, means, linewidth=2.3, label=f"{representation} mean")
-        ax.fill_between(ks, lower, upper, alpha=0.18)
+        (line,) = ax.plot(ks, means, linewidth=2.3, label=f"{representation} mean")
+        rep_colors[representation] = line.get_color()
+        ax.fill_between(ks, lower, upper, alpha=0.18, color=line.get_color())
         for speaker_id, points in curves_by_representation[representation].items():
             all_curves[f"{representation}:{speaker_id}"] = points
+
+    if stability_means:
+        for representation, mean_s in sorted(stability_means.items()):
+            color = rep_colors.get(representation, "#888888")
+            ax.axvline(
+                mean_s,
+                color=color,
+                linestyle="--",
+                linewidth=1.5,
+                label=f"{representation} stability ≈ {mean_s:.1f}s",
+            )
 
     ax.set_title("Embedding Stability: Aggregate Mean ± Std")
     ax.set_xlabel("Cumulative Speech (seconds)")
@@ -202,7 +245,7 @@ def _plot_aggregate_comparison(
     ax.grid(True, alpha=0.3)
     ax.legend(loc="lower right")
 
-    file_stem = out_dir / "stability_aggregate_mean_std"
+    file_stem = out_dir / file_stem_name
     _save_plot(fig, file_stem, formats)
 
 
@@ -249,28 +292,51 @@ def main(argv: Sequence[str]) -> int:
     formats = [fmt.strip().lower() for fmt in str(args.formats).split(",") if fmt.strip()]
     x_max_seconds = float(args.x_max_seconds)
 
-    curves_by_rep = _group_curves(rows)
-    stats_by_rep: Dict[str, List[Tuple[float, float, float]]] = {}
-    for representation, curves in curves_by_rep.items():
-        stats = _aggregate_stats(curves, max_seconds=x_max_seconds)
-        stats_by_rep[representation] = stats
-        _plot_representation_curves(
-            representation=representation,
-            curves=curves,
-            stats=stats,
+    approaches = [
+        {
+            "metric": "cosine_to_full",
+            "stability_col": "stability_seconds",
+            "file_suffix": "",
+            "aggregate_stem": "stability_aggregate_mean_std",
+        },
+        {
+            "metric": "cosine_consecutive",
+            "stability_col": "stability_consecutive_seconds",
+            "file_suffix": "_consecutive",
+            "aggregate_stem": "stability_aggregate_consecutive",
+        },
+    ]
+
+    for approach in approaches:
+        curves_by_rep = _group_curves(rows, metric=approach["metric"])
+        stability_means = _compute_stability_means(rows, approach["stability_col"])
+        stats_by_rep: Dict[str, List[Tuple[float, float, float]]] = {}
+        for representation, curves in curves_by_rep.items():
+            stats = _aggregate_stats(curves, max_seconds=x_max_seconds)
+            stats_by_rep[representation] = stats
+            _plot_representation_curves(
+                representation=representation,
+                curves=curves,
+                stats=stats,
+                out_dir=out_dir,
+                formats=formats,
+                x_max_seconds=x_max_seconds,
+                file_suffix=approach["file_suffix"],
+                stability_mean=stability_means.get(representation),
+            )
+
+        _plot_aggregate_comparison(
+            stats_by_representation=stats_by_rep,
+            curves_by_representation=curves_by_rep,
             out_dir=out_dir,
             formats=formats,
             x_max_seconds=x_max_seconds,
+            file_stem_name=approach["aggregate_stem"],
+            stability_means=stability_means,
         )
+        if approach["file_suffix"] == "":
+            _write_aggregate_csv(out_dir / "stability_aggregate_stats.csv", stats_by_rep)
 
-    _plot_aggregate_comparison(
-        stats_by_representation=stats_by_rep,
-        curves_by_representation=curves_by_rep,
-        out_dir=out_dir,
-        formats=formats,
-        x_max_seconds=x_max_seconds,
-    )
-    _write_aggregate_csv(out_dir / "stability_aggregate_stats.csv", stats_by_rep)
     print(f"Saved plots and aggregate stats to {out_dir}")
     return 0
 

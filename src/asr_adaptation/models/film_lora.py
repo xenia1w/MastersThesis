@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from peft import PeftModel, PeftMixedModel
-from transformers import Wav2Vec2Processor
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 from src.asr_adaptation.models.wav2vec_lora import (
     DEFAULT_MODEL_NAME,
@@ -20,6 +20,7 @@ from src.asr_adaptation.models.wav2vec_lora import (
 __all__ = [
     "FiLMConditionedLoraModel",
     "build_film_lora_model",
+    "load_film_lora_model",
     "save_film_speaker_adapter",
     "trainable_parameter_summary",
 ]
@@ -132,6 +133,33 @@ def build_film_lora_model(
         target_modules=target_modules,
     )
     return FiLMConditionedLoraModel(peft_model, speaker_emb_dim=speaker_emb_dim), processor
+
+
+def load_film_lora_model(
+    speaker_id: str,
+    checkpoint_dir: str | Path,
+    model_name: str = DEFAULT_MODEL_NAME,
+    cache_dir: str | None = None,
+) -> tuple[FiLMConditionedLoraModel, Wav2Vec2Processor]:
+    """Load a previously saved FiLM-conditioned LoRA adapter for inference.
+
+    Args:
+        speaker_id: Subdirectory name used when saving, e.g. "ABA".
+        checkpoint_dir: Root directory containing per-speaker adapter subdirectories.
+        model_name: Base model identifier (must match training).
+        cache_dir: Optional local cache directory for base model weights.
+
+    Returns:
+        (film_model, processor) ready for inference — no training state.
+    """
+    adapter_dir = Path(checkpoint_dir) / speaker_id
+    base_model = Wav2Vec2ForCTC.from_pretrained(model_name, cache_dir=cache_dir)
+    processor = Wav2Vec2Processor.from_pretrained(model_name, cache_dir=cache_dir)
+    peft_model = PeftModel.from_pretrained(base_model, str(adapter_dir))
+    film_model = FiLMConditionedLoraModel(peft_model)
+    film_state = torch.load(adapter_dir / "film_mlp.pt", map_location="cpu", weights_only=True)
+    film_model.film_mlp.load_state_dict(film_state)
+    return film_model, processor
 
 
 def save_film_speaker_adapter(
