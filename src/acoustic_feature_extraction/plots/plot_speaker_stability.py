@@ -220,7 +220,7 @@ def _plot_aggregate_comparison(
         lower = np.clip(means - stds, 0.0, 1.0)
         upper = np.clip(means + stds, 0.0, 1.0)
         (line,) = ax.plot(ks, means, linewidth=2.3, label=f"{representation} mean")
-        rep_colors[representation] = line.get_color()
+        rep_colors[representation] = str(line.get_color())
         ax.fill_between(ks, lower, upper, alpha=0.18, color=line.get_color())
         for speaker_id, points in curves_by_representation[representation].items():
             all_curves[f"{representation}:{speaker_id}"] = points
