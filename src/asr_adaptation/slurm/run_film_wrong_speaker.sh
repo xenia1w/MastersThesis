@@ -39,8 +39,11 @@ set -euo pipefail
 # Override via: --export=ALL,PROFILE_LAYER=6
 PROFILE_LAYER="${PROFILE_LAYER:--1}"
 
-# Resolve checkpoint/output dir from layer
-if [[ "$PROFILE_LAYER" == "-1" ]]; then
+# DATA_DIR can be overridden to point at a non-default experiment directory.
+# Override via: --export=ALL,DATA_DIR=data/processed/asr_adaptation_film_splitlr
+if [[ -n "${DATA_DIR:-}" ]]; then
+    : # use as-is
+elif [[ "$PROFILE_LAYER" == "-1" ]]; then
     DATA_DIR="data/processed/asr_adaptation_film"
 else
     DATA_DIR="data/processed/asr_adaptation_film_layer${PROFILE_LAYER}"

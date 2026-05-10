@@ -42,9 +42,13 @@ export TRANSFORMERS_OFFLINE=1
 
 source .venv/bin/activate
 
+# DATA_DIR can be overridden to avoid clobbering a previous run's results.
+# Override via: --export=ALL,DATA_DIR=data/processed/asr_adaptation_film_splitlr
+DATA_DIR="${DATA_DIR:-data/processed/asr_adaptation_film}"
+
 mkdir -p logs \
-         data/processed/asr_adaptation_film/film_lora_weights \
-         data/processed/asr_adaptation_film/film_adaptation_results
+         "${DATA_DIR}/film_lora_weights" \
+         "${DATA_DIR}/film_adaptation_results"
 
 echo "=== FiLM training for speaker $SPEAKER started: $(date) ==="
 echo "Array task ID: $SLURM_ARRAY_TASK_ID | Host: $(hostname)"
@@ -58,7 +62,7 @@ fi
 python -m src.asr_adaptation.pipeline.film_train \
     --speaker-id        "$SPEAKER" \
     --l2arctic-zip      data/raw/l2arctic_release_v5.0.zip \
-    --output-dir        data/processed/asr_adaptation_film \
+    --output-dir        "$DATA_DIR" \
     --cache-dir         data/cache/huggingface \
     --profile-extractor wav2vec2 \
     $FILM_LR_ARG
