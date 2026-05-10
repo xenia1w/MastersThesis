@@ -13,6 +13,14 @@ analyse perturbation sensitivity, and study embedding stability.
 Fine-tune `wav2vec2-base-960h` with per-speaker LoRA adapters using labeled
 L2-ARCTIC utterances. Measure WER improvement and how much data is needed.
 
+**Phase 3 — Acoustic Profile Injection via FiLM** (`src/asr_adaptation/`)
+Extend Phase 2 with FiLM (Feature-wise Linear Modulation) conditioning: a speaker
+centroid extracted from the Wav2Vec2 encoder is fed through an MLP that produces
+per-layer (γ, β) pairs applied after each encoder layer's final norm. Both LoRA
+adapters and the FiLM MLP are trained jointly. Includes a wrong-speaker control
+experiment to verify the model uses speaker-specific information, and a layer sweep
+to identify which encoder layer yields the most discriminative acoustic profile.
+
 ---
 
 ## Setup
@@ -61,7 +69,20 @@ MastersThesis/
 ├── pyproject.toml
 ├── src/
 │   ├── acoustic_feature_extraction/ # Phase 1 — see its README
-│   └── asr_adaptation/              # Phase 2 — see its README
+│   └── asr_adaptation/              # Phases 2 & 3 — see its README
+│       ├── data/
+│       ├── inference/
+│       ├── metrics/
+│       ├── models/
+│       │   ├── wav2vec_lora.py      # Phase 2: plain LoRA adapter
+│       │   └── film_lora.py         # Phase 3: FiLM-conditioned LoRA
+│       ├── pipeline/
+│       │   ├── baseline_eval.py
+│       │   ├── lora_train.py
+│       │   ├── data_size_analysis.py
+│       │   ├── film_train.py        # Phase 3: FiLM+LoRA training
+│       │   └── film_wrong_speaker.py # Phase 3: wrong-speaker control
+│       └── slurm/
 ├── tests/                           # All unit tests
 └── data/
     ├── raw/                         # Raw dataset zips (not in git)
@@ -80,4 +101,4 @@ MastersThesis/
 ## Phase Guides
 
 - **Phase 1:** [`src/acoustic_feature_extraction/README.md`](src/acoustic_feature_extraction/README.md)
-- **Phase 2:** [`src/asr_adaptation/README.md`](src/asr_adaptation/README.md)
+- **Phases 2 & 3:** [`src/asr_adaptation/README.md`](src/asr_adaptation/README.md)
