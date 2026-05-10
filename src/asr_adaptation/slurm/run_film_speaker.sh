@@ -9,6 +9,9 @@
 # Submit a subset for testing (e.g. first 3 speakers):
 #   sbatch --array=0-2  src/asr_adaptation/slurm/run_film_speaker.sh
 #
+# To use a separate (higher) learning rate for the FiLM MLP:
+#   sbatch --array=0-23 --export=ALL,FILM_LR=1e-4 src/asr_adaptation/slurm/run_film_speaker.sh
+#
 # Monitor: squeue -u $USER
 # =============================================================================
 
@@ -46,11 +49,18 @@ mkdir -p logs \
 echo "=== FiLM training for speaker $SPEAKER started: $(date) ==="
 echo "Array task ID: $SLURM_ARRAY_TASK_ID | Host: $(hostname)"
 
+FILM_LR_ARG=""
+if [[ -n "${FILM_LR:-}" ]]; then
+    FILM_LR_ARG="--film-lr ${FILM_LR}"
+fi
+
+# shellcheck disable=SC2086
 python -m src.asr_adaptation.pipeline.film_train \
     --speaker-id        "$SPEAKER" \
     --l2arctic-zip      data/raw/l2arctic_release_v5.0.zip \
     --output-dir        data/processed/asr_adaptation_film \
     --cache-dir         data/cache/huggingface \
-    --profile-extractor wav2vec2
+    --profile-extractor wav2vec2 \
+    $FILM_LR_ARG
 
 echo "=== FiLM training for speaker $SPEAKER finished: $(date) ==="

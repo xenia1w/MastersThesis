@@ -91,6 +91,7 @@ def _train_lora(
     n_epochs: int = _N_EPOCHS,
     learning_rate: float = _LEARNING_RATE,
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
+    film_lr: float | None = None,
 ) -> None:
     """Fine-tune LoRA weights on the training samples using CTC loss."""
     # Prevent NaN loss from crashing training when a sample's label sequence is
@@ -102,7 +103,16 @@ def _train_lora(
     model.config.apply_spec_augment = False  # type: ignore[union-attr]
 
     trainable_params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.AdamW(trainable_params, lr=learning_rate)
+    film_mlp = getattr(model, "film_mlp", None)
+    if film_lr is not None and film_mlp is not None:
+        film_ids = {id(p) for p in film_mlp.parameters() if p.requires_grad}
+        optimizer = torch.optim.AdamW([
+            {"params": [p for p in trainable_params if id(p) not in film_ids], "lr": learning_rate},
+            {"params": [p for p in trainable_params if id(p) in film_ids], "lr": film_lr},
+        ])
+        logger.info(f"Split LR — LoRA: {learning_rate:.2e} | FiLM MLP: {film_lr:.2e}")
+    else:
+        optimizer = torch.optim.AdamW(trainable_params, lr=learning_rate)
 
     model.train()
 

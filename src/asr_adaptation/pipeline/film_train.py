@@ -27,6 +27,7 @@ _N_EVAL = 100
 _N_TRAIN_DEFAULT = None  # use all available training utterances
 _N_EPOCHS = 10
 _LEARNING_RATE = 1e-5
+_FILM_LR_DEFAULT: float | None = None  # None = same as learning_rate; try e.g. 1e-4 to force faster MLP updates
 _GRAD_ACCUM_STEPS = 4
 
 
@@ -39,6 +40,7 @@ def run_film_train(
     n_eval: int = _N_EVAL,
     n_epochs: int = _N_EPOCHS,
     learning_rate: float = _LEARNING_RATE,
+    film_lr: float | None = _FILM_LR_DEFAULT,
     grad_accum_steps: int = _GRAD_ACCUM_STEPS,
     seed: int = 0,
     wavlm_model: str = "microsoft/wavlm-base-plus",
@@ -58,7 +60,8 @@ def run_film_train(
         n_train: Number of utterances for training. None = use all available.
         n_eval: Number of utterances held out for evaluation.
         n_epochs: Training epochs.
-        learning_rate: AdamW learning rate.
+        learning_rate: AdamW learning rate for LoRA parameters.
+        film_lr: Separate AdamW learning rate for the FiLM MLP. None = same as learning_rate.
         grad_accum_steps: Gradient accumulation steps.
         seed: Random seed for shuffling the training pool.
         profile_extractor: "wav2vec2" (default) or "wavlm".
@@ -134,7 +137,10 @@ def run_film_train(
     hypotheses_baseline = _get_hypotheses(model, eval_samples, processor, device, eval_centroid)
 
     logger.info(f"Fine-tuning on {actual_n_train} utterances ...")
-    _train_lora(model, train_samples, processor, device, speaker_centroid, n_epochs, learning_rate, grad_accum_steps)
+    _train_lora(
+        model, train_samples, processor, device, speaker_centroid,
+        n_epochs, learning_rate, grad_accum_steps, film_lr=film_lr,
+    )
 
     logger.info("Evaluating adapted model ...")
     hypotheses_adapted = _get_hypotheses(model, eval_samples, processor, device, eval_centroid)
@@ -178,7 +184,8 @@ if __name__ == "__main__":
     parser.add_argument("--n-train", type=int, default=_N_TRAIN_DEFAULT, help="Max training utterances")
     parser.add_argument("--n-eval", type=int, default=_N_EVAL, help="Held-out evaluation utterances")
     parser.add_argument("--n-epochs", type=int, default=_N_EPOCHS, help="Training epochs")
-    parser.add_argument("--learning-rate", type=float, default=_LEARNING_RATE, help="AdamW learning rate")
+    parser.add_argument("--learning-rate", type=float, default=_LEARNING_RATE, help="AdamW learning rate for LoRA parameters")
+    parser.add_argument("--film-lr", type=float, default=_FILM_LR_DEFAULT, help="AdamW learning rate for FiLM MLP (default: same as --learning-rate)")
     parser.add_argument("--grad-accum-steps", type=int, default=_GRAD_ACCUM_STEPS, help="Gradient accumulation steps")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--wavlm-model", default="microsoft/wavlm-base-plus", help="WavLM model name (used with --profile-extractor wavlm)")
@@ -197,6 +204,7 @@ if __name__ == "__main__":
         n_eval=args.n_eval,
         n_epochs=args.n_epochs,
         learning_rate=args.learning_rate,
+        film_lr=args.film_lr,
         grad_accum_steps=args.grad_accum_steps,
         seed=args.seed,
         wavlm_model=args.wavlm_model,
