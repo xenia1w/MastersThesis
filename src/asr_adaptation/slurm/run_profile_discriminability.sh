@@ -63,6 +63,17 @@ for LAYER in 4 6 9; do
         --cache-dir     data/cache/huggingface
 done
 
+# wav2vec2-base-superb-sid — speaker-ID fine-tuned wav2vec2, same architecture as backbone
+# Loads the encoder weights only (classification head is ignored by Wav2Vec2Model.from_pretrained)
+echo "--- wav2vec2-base-superb-sid, layer=-1 ---"
+python -m src.asr_adaptation.pipeline.profile_discriminability \
+    --l2arctic-zip   data/raw/l2arctic_release_v5.0.zip \
+    --output-dir     "$OUTPUT_DIR" \
+    --extractor      wav2vec2 \
+    --profile-layer  -1 \
+    --wav2vec2-model superb/wav2vec2-base-superb-sid \
+    --cache-dir      data/cache/huggingface
+
 # WavLM — for comparison with the Phase 1 stability analysis
 echo "--- wavlm, layer=-1 ---"
 python -m src.asr_adaptation.pipeline.profile_discriminability \

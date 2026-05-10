@@ -7,9 +7,9 @@ the centroids cluster too tightly for FiLM to distinguish speakers, which
 would explain a flat wrong-speaker WER result regardless of learning rate.
 
 Outputs:
-  {output_dir}/profile_discriminability_{extractor}_layer{layer}.csv
+  {output_dir}/profile_discriminability_{model-short-name}_{layer_tag}.csv
       One row per speaker pair: speaker_a, speaker_b, cosine_similarity
-  {output_dir}/profile_discriminability_{extractor}_layer{layer}.png
+  {output_dir}/profile_discriminability_{model-short-name}_{layer_tag}.png
       Heatmap of the full pairwise similarity matrix + histogram of off-diagonal values
 
 Run locally (fast, CPU, 3 speakers for a quick sanity check):
@@ -55,6 +55,7 @@ def _compute_centroids(
     profile_layer: int,
     cache_dir: str | None,
     wavlm_model: str,
+    wav2vec2_model: str,
 ) -> dict[str, torch.Tensor]:
     """Return {speaker_id: L2-normalised centroid} for all speakers."""
     centroids: dict[str, torch.Tensor] = {}
@@ -69,7 +70,8 @@ def _compute_centroids(
             )
         else:
             c = compute_speaker_centroid_wav2vec2(
-                train_samples, device=device, profile_layer=profile_layer, cache_dir=cache_dir
+                train_samples, device=device, model_name=wav2vec2_model,
+                profile_layer=profile_layer, cache_dir=cache_dir,
             )
         centroids[speaker_id] = c.cpu()
     return centroids
@@ -145,15 +147,22 @@ def run_profile_discriminability(
     profile_layer: int = -1,
     cache_dir: str | None = None,
     wavlm_model: str = "microsoft/wavlm-base-plus",
+    wav2vec2_model: str = "facebook/wav2vec2-base",
 ) -> None:
     output_dir = Path(output_dir)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     speakers = speakers or _ALL_SPEAKERS
     layer_tag = f"layer{profile_layer}" if profile_layer >= 0 else "layerlast"
-    stem = f"profile_discriminability_{extractor}_{layer_tag}"
 
-    logger.info(f"Computing centroids for {len(speakers)} speakers | extractor={extractor} layer={profile_layer}")
-    centroids = _compute_centroids(speakers, l2arctic_zip, device, extractor, profile_layer, cache_dir, wavlm_model)
+    # Use the model's short name in the filename so different checkpoints don't overwrite each other
+    active_model = wavlm_model if extractor == "wavlm" else wav2vec2_model
+    model_tag = active_model.split("/")[-1]
+    stem = f"profile_discriminability_{model_tag}_{layer_tag}"
+
+    logger.info(f"Computing centroids for {len(speakers)} speakers | model={active_model} layer={profile_layer}")
+    centroids = _compute_centroids(
+        speakers, l2arctic_zip, device, extractor, profile_layer, cache_dir, wavlm_model, wav2vec2_model,
+    )
 
     ordered_speakers, matrix = _pairwise_cosine(centroids)
 
@@ -169,7 +178,7 @@ def run_profile_discriminability(
     _plot(
         ordered_speakers, matrix,
         output_dir / f"{stem}.png",
-        title=f"Profile discriminability — {extractor}, layer={profile_layer}",
+        title=f"Profile discriminability — {active_model}, layer={profile_layer}",
     )
 
 
@@ -181,7 +190,8 @@ if __name__ == "__main__":
     parser.add_argument("--extractor", default="wav2vec2", choices=["wav2vec2", "wavlm"], help="Profile extractor model")
     parser.add_argument("--profile-layer", type=int, default=-1, help="Encoder layer to extract profile from (default -1 = last)")
     parser.add_argument("--cache-dir", default=None, help="HuggingFace model cache directory")
-    parser.add_argument("--wavlm-model", default="microsoft/wavlm-base-plus", help="WavLM model name (used with --extractor wavlm)")
+    parser.add_argument("--wavlm-model", default="microsoft/wavlm-base-plus", help="WavLM checkpoint (used with --extractor wavlm)")
+    parser.add_argument("--wav2vec2-model", default="facebook/wav2vec2-base", help="Wav2Vec2 checkpoint (used with --extractor wav2vec2)")
 
     args = parser.parse_args()
     run_profile_discriminability(
@@ -192,4 +202,5 @@ if __name__ == "__main__":
         profile_layer=args.profile_layer,
         cache_dir=args.cache_dir,
         wavlm_model=args.wavlm_model,
+        wav2vec2_model=args.wav2vec2_model,
     )
