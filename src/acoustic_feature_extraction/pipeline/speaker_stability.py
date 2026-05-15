@@ -674,6 +674,15 @@ def parse_args(argv: Sequence[str]) -> SpeakerStabilityConfig:
         default=None,
         help="Silence threshold (dB) used by librosa.effects.split for SAA.",
     )
+    parser.add_argument(
+        "--representations",
+        default=None,
+        help=(
+            "Comma-separated list of representations to run. "
+            "Choices: wavlm_base_meanstd, wavlm_sv_xvector, wav2vec2_meanstd. "
+            "Defaults to all three when omitted."
+        ),
+    )
 
     parsed = parser.parse_args(list(argv))
     ks = [int(k.strip()) for k in parsed.ks.split(",") if k.strip()]
@@ -705,6 +714,16 @@ def parse_args(argv: Sequence[str]) -> SpeakerStabilityConfig:
             ),
         )
 
+    all_representations = {r.name: r for r in _default_representations()}
+    if parsed.representations:
+        selected_names = [n.strip() for n in parsed.representations.split(",") if n.strip()]
+        unknown = [n for n in selected_names if n not in all_representations]
+        if unknown:
+            parser.error(f"Unknown representation(s): {unknown}. Valid: {list(all_representations)}")
+        representations = [all_representations[n] for n in selected_names]
+    else:
+        representations = list(all_representations.values())
+
     config = SpeakerStabilityConfig(
         dataset=parsed.dataset,
         outer_zip=parsed.outer_zip,
@@ -721,9 +740,8 @@ def parse_args(argv: Sequence[str]) -> SpeakerStabilityConfig:
         stability_consecutive=parsed.stability_consecutive,
         stability_consecutive_threshold=parsed.stability_consecutive_threshold,
         saa_segmentation=saa_segmentation,
+        representations=representations,
     )
-    if not config.representations:
-        config.representations = _default_representations()
     return config
 
 

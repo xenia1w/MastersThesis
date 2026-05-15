@@ -144,7 +144,7 @@ def main(args: argparse.Namespace) -> None:
             args.l2arctic_zip, processor, model, device,
             speaker_filter=args.speaker,
         )
-        _save_csv(l2arctic_rows, output_dir / "l2arctic_baseline.csv")
+        _save_csv(l2arctic_rows, output_dir / "l2arctic_baseline_full_corpus.csv")
 
     if args.saa_zip:
         saa_rows = run_saa_baseline(args.saa_zip, processor, model, device)
