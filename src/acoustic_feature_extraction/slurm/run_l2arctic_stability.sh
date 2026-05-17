@@ -10,11 +10,11 @@
 # =============================================================================
 
 #SBATCH --job-name=stability-l2arctic
-#SBATCH --time=02:00:00
+#SBATCH --time=10:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:a100:1
-#SBATCH --partition=gpu_short
+#SBATCH --partition=gpu
 #SBATCH --account=qu
 
 #SBATCH --chdir=/home/users/x/xenia1w/MastersThesis
