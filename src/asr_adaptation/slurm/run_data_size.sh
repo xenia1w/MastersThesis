@@ -58,14 +58,12 @@ cd "$PROJECT_DIR"
 export HF_HOME="$PROJECT_DIR/data/cache/huggingface"
 export TRANSFORMERS_OFFLINE=1
 
-source .venv/bin/activate
-
 mkdir -p logs data/processed/asr_adaptation/data_size_curves
 
 echo "=== Data size sweep | speaker=$SPEAKER n_train=$N_TRAIN seed=$SEED | $(date) ==="
 echo "Array task: $SLURM_ARRAY_TASK_ID | Host: $(hostname)"
 
-python -m src.asr_adaptation.pipeline.data_size_analysis run \
+uv run python -m src.asr_adaptation.pipeline.data_size_analysis run \
     --speaker       "$SPEAKER" \
     --n-train       "$N_TRAIN" \
     --seed          "$SEED" \
