@@ -15,7 +15,7 @@ class WavLMEncoder:
         cache_dir: Optional[str] = None,
     ) -> None:
         self.model_name = model_name
-        resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        resolved_device = device or ("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
         self.device = torch.device(resolved_device)
 
         cache_path = Path(cache_dir or "data/cache/huggingface")
@@ -77,7 +77,7 @@ class WavLMBaseEncoder:
         cache_dir: Optional[str] = None,
     ) -> None:
         self.model_name = model_name
-        resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        resolved_device = device or ("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
         self.device = torch.device(resolved_device)
 
         cache_path = Path(cache_dir or "data/cache/huggingface")
