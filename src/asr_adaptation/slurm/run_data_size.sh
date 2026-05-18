@@ -2,15 +2,15 @@
 # =============================================================================
 # run_data_size.sh
 # Data size sweep for RQ1.3: train LoRA on N utterances per speaker,
-# vary N across [1, 5, 10, 20, 50, 100, 200], repeat 3 seeds each.
+# vary N across [20, 50, 100, 200, 300, 500], repeat 3 seeds each.
 #
-# Total tasks = 18 speakers × 7 N-values × 3 seeds = 378 jobs
+# Total tasks = 4 speakers × 6 N-values × 1 seed = 24 jobs
 #
 # Submit with:
-#   sbatch --array=0-377 src/asr_adaptation/slurm/run_data_size.sh
+#   sbatch --array=0-23 src/asr_adaptation/slurm/run_data_size.sh
 #
-#   For a quick test (first 6 tasks = speaker 0, all N-values, seed 0):
-#   sbatch --array=0-6   src/asr_adaptation/slurm/run_data_size.sh
+#   For a quick test (first 6 tasks = speaker 0, all N-values):
+#   sbatch --array=0-5   src/asr_adaptation/slurm/run_data_size.sh
 #
 # Monitor with: squeue -u $USER
 # =============================================================================
@@ -35,9 +35,9 @@
 
 set -euo pipefail
 
-SPEAKERS=(ABA ASI BWC EBVS ERMS HJK HKK HQTV LXC MBMPS NCC NJS PNV RRBI SKA SVBI THV TNI)
-N_VALUES=(1 5 10 20 50 100 200)
-SEEDS=(0 1 2)
+SPEAKERS=(RRBI ERMS LXC HQTV)
+N_VALUES=(20 50 100 200 300 500)
+SEEDS=(0)
 
 N_SPEAKERS=${#SPEAKERS[@]}   # 18
 N_N=${#N_VALUES[@]}          # 7

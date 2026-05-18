@@ -9,8 +9,8 @@ from loguru import logger
 from src.asr_adaptation.pipeline.lora_train import run_lora_train
 
 # N-values and seeds used across the full sweep
-N_VALUES = [1, 5, 10, 20, 50, 100, 200]
-SEEDS = [0, 1, 2]
+N_VALUES = [20, 50, 100, 200, 300, 500]
+SEEDS = [0]
 
 
 def run_data_size_single(
@@ -53,6 +53,7 @@ def run_data_size_single(
         cache_dir=cache_dir,
         n_train=n_train,
         seed=seed,
+        no_profile=True,
     )
 
     avg_baseline = sum(r.wer_baseline for r in rows) / len(rows)
