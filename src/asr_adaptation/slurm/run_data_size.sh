@@ -16,21 +16,17 @@
 # =============================================================================
 
 #SBATCH --job-name=asr-sweep
-#SBATCH --time=02:00:00          # Shorter — small N means fast training
+#SBATCH --time=02:00:00
 #SBATCH --mem=24G
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
-#SBATCH --output=logs/sweep_%A_%a.out
-#SBATCH --error=logs/sweep_%A_%a.err
-
 #SBATCH --partition=gpu_short
+#SBATCH --account=qu
+#SBATCH --chdir=/home/users/x/xenia1w/MastersThesis
+#SBATCH --output=/home/users/x/xenia1w/MastersThesis/logs/sweep_%A_%a.out
+#SBATCH --error=/home/users/x/xenia1w/MastersThesis/logs/sweep_%A_%a.err
 
-# TODO: uncomment if your cluster requires an account
-# #SBATCH --account=YOUR_ACCOUNT
-
-# TODO: if your cluster uses environment modules for CUDA, load them here:
-# module load cuda/12.1
-# module load python/3.13
+module load cuda/12.8
 
 set -euo pipefail
 
@@ -58,12 +54,14 @@ cd "$PROJECT_DIR"
 export HF_HOME="$PROJECT_DIR/data/cache/huggingface"
 export TRANSFORMERS_OFFLINE=1
 
+source .venv/bin/activate
+
 mkdir -p logs data/processed/asr_adaptation/data_size_curves
 
 echo "=== Data size sweep | speaker=$SPEAKER n_train=$N_TRAIN seed=$SEED | $(date) ==="
 echo "Array task: $SLURM_ARRAY_TASK_ID | Host: $(hostname)"
 
-uv run python -m src.asr_adaptation.pipeline.data_size_analysis run \
+python -m src.asr_adaptation.pipeline.data_size_analysis run \
     --speaker       "$SPEAKER" \
     --n-train       "$N_TRAIN" \
     --seed          "$SEED" \
