@@ -23,8 +23,7 @@
 #SBATCH --output=logs/sweep_%A_%a.out
 #SBATCH --error=logs/sweep_%A_%a.err
 
-# TODO: uncomment and set your cluster's partition
-# #SBATCH --partition=gpu
+#SBATCH --partition=gpu_short
 
 # TODO: uncomment if your cluster requires an account
 # #SBATCH --account=YOUR_ACCOUNT
