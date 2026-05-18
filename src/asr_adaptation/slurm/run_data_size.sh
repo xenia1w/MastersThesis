@@ -52,7 +52,7 @@ SPEAKER="${SPEAKERS[$SPEAKER_IDX]}"
 N_TRAIN="${N_VALUES[$N_IDX]}"
 SEED="${SEEDS[$SEED_IDX]}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+PROJECT_DIR="/home/users/x/xenia1w/MastersThesis"
 cd "$PROJECT_DIR"
 
 export HF_HOME="$PROJECT_DIR/data/cache/huggingface"
