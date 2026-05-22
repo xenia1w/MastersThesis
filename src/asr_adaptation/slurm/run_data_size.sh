@@ -19,7 +19,7 @@
 #SBATCH --time=02:00:00
 #SBATCH --mem=24G
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:a100:1
 #SBATCH --partition=gpu_short
 #SBATCH --account=qu
 #SBATCH --chdir=/home/users/x/xenia1w/MastersThesis
@@ -34,9 +34,9 @@ SPEAKERS=(RRBI ERMS LXC HQTV)
 N_VALUES=(20 50 100 200 300 500)
 SEEDS=(0)
 
-N_SPEAKERS=${#SPEAKERS[@]}   # 18
-N_N=${#N_VALUES[@]}          # 7
-N_SEEDS=${#SEEDS[@]}         # 3
+N_SPEAKERS=${#SPEAKERS[@]}   # 4
+N_N=${#N_VALUES[@]}          # 6
+N_SEEDS=${#SEEDS[@]}         # 1
 
 # Decode flat task index into (speaker, n_train, seed)
 TASK_ID=$SLURM_ARRAY_TASK_ID
