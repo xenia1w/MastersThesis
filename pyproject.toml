@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
+    "datasets>=2.14.0,<3.0.0",
     "jiwer>=4.0.0",
     "just>=0.8.165",
     "librosa>=0.11.0",
