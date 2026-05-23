@@ -4,10 +4,11 @@ import argparse
 import csv
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import wilcoxon
 
 SPEAKER_COLORS = {
     "RRBI": "#2A6F97",
@@ -20,12 +21,14 @@ SPEAKER_COLORS = {
 def _load_results(results_dir: Path) -> Dict[str, List[dict]]:
     by_speaker: Dict[str, List[dict]] = defaultdict(list)
     for path in sorted(results_dir.glob("*_seed*.csv")):
+        if "_utterances" in path.name:
+            continue
         with path.open(newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 by_speaker[row["speaker_id"]].append(
                     {
-                        "n_train":     int(row["n_train"]),
-                        "seed":        int(row["seed"]),
+                        "n_train":      int(row["n_train"]),
+                        "seed":         int(row["seed"]),
                         "wer_baseline": float(row["wer_baseline"]),
                         "wer_adapted":  float(row["wer_adapted"]),
                         "wer_delta":    float(row["wer_delta"]),
@@ -34,6 +37,34 @@ def _load_results(results_dir: Path) -> Dict[str, List[dict]]:
     for rows in by_speaker.values():
         rows.sort(key=lambda r: (r["n_train"], r["seed"]))
     return dict(by_speaker)
+
+
+def _load_utterances(results_dir: Path) -> Dict[str, Dict[tuple, list]]:
+    """Load per-utterance WER files. Returns {speaker: {(n_train, seed): [rows]}}."""
+    by_speaker: Dict[str, Dict[tuple, list]] = defaultdict(lambda: defaultdict(list))
+    for path in sorted(results_dir.glob("*_utterances.csv")):
+        with path.open(newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                key = (int(row["n_train"]), int(row["seed"]))
+                by_speaker[row["speaker_id"]][key].append(
+                    {
+                        "wer_baseline": float(row["wer_baseline"]),
+                        "wer_adapted":  float(row["wer_adapted"]),
+                    }
+                )
+    return dict(by_speaker)
+
+
+def _pvalue(utterance_rows: list) -> Optional[float]:
+    baseline = [r["wer_baseline"] for r in utterance_rows]
+    adapted  = [r["wer_adapted"]  for r in utterance_rows]
+    diffs = [a - b for a, b in zip(adapted, baseline)]
+    if all(d == 0 for d in diffs):
+        return 1.0
+    try:
+        return wilcoxon(diffs, alternative="less").pvalue
+    except ValueError:
+        return None
 
 
 def _aggregate(rows: List[dict]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -48,10 +79,23 @@ def _aggregate(rows: List[dict]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np
     return ns, baseline, adapted, delta
 
 
+def _sig_label(p: float) -> str:
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return ""
+
+
 def plot(results_dir: Path, output_path: Path) -> None:
     data = _load_results(results_dir)
     if not data:
         raise FileNotFoundError(f"No result CSVs found in {results_dir}")
+
+    utterances = _load_utterances(results_dir)
+    has_utterances = bool(utterances)
 
     fig, (ax_wer, ax_delta) = plt.subplots(1, 2, figsize=(11, 4.5))
 
@@ -64,6 +108,29 @@ def plot(results_dir: Path, output_path: Path) -> None:
 
         ax_delta.axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.4)
         ax_delta.plot(ns, delta, marker="o", color=color, label=speaker)
+
+        if has_utterances and speaker in utterances:
+            spk_utts = utterances[speaker]
+            for i, n in enumerate(ns):
+                # pool utterances across all seeds for this n_train
+                pooled = [r for (n_t, _), rows_u in spk_utts.items()
+                          if n_t == n for r in rows_u]
+                if not pooled:
+                    continue
+                p = _pvalue(pooled)
+                if p is None:
+                    continue
+                label = _sig_label(p)
+                if label:
+                    ax_delta.annotate(
+                        label,
+                        xy=(n, delta[i]),
+                        xytext=(0, 6),
+                        textcoords="offset points",
+                        ha="center",
+                        color=color,
+                        fontsize=9,
+                    )
 
     ax_wer.set_xlabel("Training utterances per speaker")
     ax_wer.set_ylabel("WER")
@@ -80,6 +147,12 @@ def plot(results_dir: Path, output_path: Path) -> None:
     ax_delta.set_xticks(ns)
     ax_delta.set_xticklabels(ns)
     ax_delta.legend(title="Speaker")
+    if has_utterances:
+        ax_delta.annotate(
+            "* p<0.05  ** p<0.01  *** p<0.001\n(Wilcoxon signed-rank, one-sided)",
+            xy=(0.02, 0.02), xycoords="axes fraction",
+            fontsize=7, color="gray", va="bottom",
+        )
 
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
