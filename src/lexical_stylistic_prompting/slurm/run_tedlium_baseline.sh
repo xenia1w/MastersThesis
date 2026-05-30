@@ -36,9 +36,8 @@ PROJECT_DIR="/home/users/x/xenia1w/MastersThesis"
 cd "$PROJECT_DIR"
 
 export HF_HOME="$PROJECT_DIR/data/cache/huggingface"
-# Uncomment once models and dataset are cached on the cluster:
-# export TRANSFORMERS_OFFLINE=1
-# export HF_DATASETS_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
 
 source .venv/bin/activate
 
