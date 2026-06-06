@@ -6,7 +6,8 @@ import jiwer
 
 
 def _normalize(text: str) -> str:
-    """Lowercase and strip punctuation for fair WER comparison."""
+    """Lowercase, strip <unk> tokens, and strip punctuation for fair WER comparison."""
+    text = re.sub(r"<unk>", "", text, flags=re.IGNORECASE)
     text = text.lower()
     text = re.sub(r"[^\w\s]", "", text)
     text = re.sub(r"\s+", " ", text).strip()

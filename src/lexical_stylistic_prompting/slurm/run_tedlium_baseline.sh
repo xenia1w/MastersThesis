@@ -1,20 +1,22 @@
 #!/bin/bash
 # =============================================================================
 # run_tedlium_baseline.sh
-# Evaluate Whisper medium (no prompting) on TED-LIUM 3 test segments.
-# Outputs per-segment WER CSV to data/processed/lexical_stylistic_prompting/baseline/.
+# Evaluate Whisper medium (no prompting) on TED-LIUM 3 selected speakers.
+# Outputs one CSV per speaker to data/processed/lexical_stylistic_prompting/baseline/.
 #
-# Run for a single speaker (recommended — one job per speaker):
-#   sbatch --export=SPEAKER_ID=AlGore src/lexical_stylistic_prompting/slurm/run_tedlium_baseline.sh
+# Run for a single talk (one SLURM job):
+#   sbatch --export=SPEAKER_ID=AlGore_2006 src/lexical_stylistic_prompting/slurm/run_tedlium_baseline.sh
 #
-# Run all speakers in parallel (loop over manifest):
-#   for spk in $(tail -n +2 data/processed/lexical_stylistic_prompting/tedlium_manifest.csv | cut -d, -f1); do
-#       sbatch --export=SPEAKER_ID=$spk src/lexical_stylistic_prompting/slurm/run_tedlium_baseline.sh
-#   done
+# Run all selected speakers in parallel (one job per talk):
+#   while IFS= read -r spk; do
+#       sbatch --export=SPEAKER_ID="$spk" src/lexical_stylistic_prompting/slurm/run_tedlium_baseline.sh
+#   done < src/lexical_stylistic_prompting/data/speaker_selection/speakers_selected.txt
 #
 # Merge per-speaker CSVs afterwards:
-#   head -1 data/processed/lexical_stylistic_prompting/baseline/tedlium_baseline_AlGore.csv > tedlium_baseline.csv
-#   tail -n +2 -q data/processed/lexical_stylistic_prompting/baseline/tedlium_baseline_*.csv >> tedlium_baseline.csv
+#   first=$(ls data/processed/lexical_stylistic_prompting/baseline/tedlium_baseline_*.csv | head -1)
+#   head -1 "$first" > data/processed/lexical_stylistic_prompting/baseline/tedlium_baseline_all.csv
+#   tail -n +2 -q data/processed/lexical_stylistic_prompting/baseline/tedlium_baseline_*.csv \
+#       >> data/processed/lexical_stylistic_prompting/baseline/tedlium_baseline_all.csv
 # =============================================================================
 
 #SBATCH --job-name=tedlium-baseline
@@ -48,9 +50,10 @@ echo "Running on host: $(hostname)"
 echo "Speaker: ${SPEAKER_ID:-all}"
 
 python -m src.lexical_stylistic_prompting.pipeline.baseline_eval \
-    --model      openai/whisper-medium \
-    --output-dir data/processed/lexical_stylistic_prompting/baseline \
-    --cache-dir  data/cache/huggingface \
+    --model          openai/whisper-medium \
+    --output-dir     data/processed/lexical_stylistic_prompting/baseline \
+    --cache-dir      data/cache/huggingface \
+    --speakers-file  src/lexical_stylistic_prompting/data/speaker_selection/speakers_selected.txt \
     ${SPEAKER_ID:+--speaker "$SPEAKER_ID"}
 
 echo "=== TED-LIUM baseline finished: $(date) ==="

@@ -22,7 +22,7 @@ OUTPUT_FILE = HERE / "speakers_selected.txt"
 
 # ── Parameters ───────────────────────────────────────────────────────────────
 TOP_N = 30
-MIN_SEGMENTS = 30          # drop speakers with too little data
+MIN_SEGMENTS = 65          # must be >= skip_intro(5) + n_profile(20) + n_test(40)
 MIN_WORD_LEN = 3           # ignore very short tokens
 ZIPF_COMMON_THRESHOLD = 5  # words above this are too common to be informative
 

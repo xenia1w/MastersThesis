@@ -4,8 +4,11 @@ import argparse
 import csv
 from pathlib import Path
 
-from datasets import load_dataset
+FILTERED_DATASET_PATH = Path("data/processed/lexical_stylistic_prompting/tedlium_selected")
+
+from datasets import load_dataset, load_from_disk
 from loguru import logger
+from tqdm import tqdm
 from pydantic import BaseModel, computed_field
 
 
@@ -53,7 +56,9 @@ class SpeakerSplit(BaseModel):
 
 class DatasetSplits(BaseModel):
     splits: list[SpeakerSplit]
+    skip_intro: int
     n_profile: int
+    n_test: int
     min_segments: int
 
     @computed_field
@@ -76,12 +81,23 @@ def load_tedlium_speakers(
     cache_dir: str | None = None,
     max_examples: int | None = None,
 ) -> TedliumDataset:
-    split = f"train[:{max_examples}]" if max_examples is not None else "train"
-    logger.info(f"Loading TED-LIUM 3 (release3, split={split!r}) ...")
-    dataset = load_dataset("distil-whisper/tedlium", "release3", split=split, cache_dir=cache_dir, trust_remote_code=True)
+    if FILTERED_DATASET_PATH.exists():
+        logger.info(f"Loading filtered TED-LIUM dataset from {FILTERED_DATASET_PATH} ...")
+        dataset = load_from_disk(str(FILTERED_DATASET_PATH))
+        if max_examples is not None:
+            dataset = dataset.select(range(min(max_examples, len(dataset))))
+    else:
+        logger.warning(
+            f"Filtered dataset not found at {FILTERED_DATASET_PATH}. "
+            "Run src/lexical_stylistic_prompting/data/prepare_dataset.py first. "
+            "Falling back to full TED-LIUM dataset."
+        )
+        split = f"train[:{max_examples}]" if max_examples is not None else "train"
+        logger.info(f"Loading TED-LIUM 3 (release3, split={split!r}) ...")
+        dataset = load_dataset("distil-whisper/tedlium", "release3", split=split, cache_dir=cache_dir, trust_remote_code=True)
 
     by_speaker: dict[str, list[TedliumSegmentMeta]] = {}
-    for example in dataset:
+    for example in tqdm(dataset, desc="Indexing speakers", unit="seg"):
         seg = TedliumSegmentMeta(
             segment_id=example["id"],
             speaker_id=example["speaker_id"],
@@ -107,28 +123,64 @@ def load_tedlium_speakers(
 
 
 def build_splits(
-    min_segments: int = 20,
-    n_profile: int = 10,
+    skip_intro: int = 5,
+    n_profile: int = 20,
+    n_test: int = 40,
+    min_segments: int = 65,
     cache_dir: str | None = None,
     max_examples: int | None = None,
 ) -> DatasetSplits:
+    """Split each speaker's segments into a fixed profile window and a fixed test window.
+
+    Layout (fixed segment counts):
+        [skip_intro][-- profile --][  gap (ignored)  ][-- test (end) --]
+
+    Profile is taken from just after the intro (middle of talk).
+    Test is anchored to the last n_test segments (heaviest vocabulary).
+    Speakers with fewer than min_segments are dropped.
+    min_segments must be >= skip_intro + n_profile + n_test.
+    """
+    assert skip_intro + n_profile + n_test <= min_segments, (
+        f"min_segments ({min_segments}) must be >= skip_intro + n_profile + n_test "
+        f"({skip_intro} + {n_profile} + {n_test} = {skip_intro + n_profile + n_test})"
+    )
     tedlium = load_tedlium_speakers(min_segments=min_segments, cache_dir=cache_dir, max_examples=max_examples)
 
     splits: list[SpeakerSplit] = []
     for speaker in tedlium.speakers:
+        n = len(speaker.segments)
+        profile_start = skip_intro
+        profile_end   = skip_intro + n_profile
+        test_start    = n - n_test
+
+        # Sanity check: profile and test windows must not overlap
+        if profile_end > test_start:
+            logger.warning(
+                f"Skipping {speaker.speaker_id}: profile and test windows overlap "
+                f"({n} segments, profile_end={profile_end}, test_start={test_start})"
+            )
+            continue
+
         splits.append(
             SpeakerSplit(
                 speaker_id=speaker.speaker_id,
-                profile_segments=speaker.segments[:n_profile],
-                test_segments=speaker.segments[n_profile:],
+                profile_segments=speaker.segments[profile_start:profile_end],
+                test_segments=speaker.segments[test_start:],
             )
         )
 
     logger.info(
         f"Built splits for {len(splits)} speakers "
-        f"(n_profile={n_profile}, min_segments={min_segments})"
+        f"(skip_intro={skip_intro}, n_profile={n_profile}, n_test={n_test}, "
+        f"min_segments={min_segments})"
     )
-    return DatasetSplits(splits=splits, n_profile=n_profile, min_segments=min_segments)
+    return DatasetSplits(
+        splits=splits,
+        skip_intro=skip_intro,
+        n_profile=n_profile,
+        n_test=n_test,
+        min_segments=min_segments,
+    )
 
 
 def _save_manifest(dataset_splits: DatasetSplits, path: Path) -> None:
