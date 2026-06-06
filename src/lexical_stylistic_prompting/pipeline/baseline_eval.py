@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import torch
-from datasets import load_dataset, load_from_disk
+from datasets import Dataset, load_dataset, load_from_disk
 from loguru import logger
 from tqdm import tqdm
 from pydantic import BaseModel
@@ -132,6 +132,7 @@ def main(args: argparse.Namespace) -> None:
 
     if FILTERED_DATASET_PATH.exists():
         dataset = load_from_disk(str(FILTERED_DATASET_PATH))
+        assert isinstance(dataset, Dataset)
         if args.max_examples is not None:
             dataset = dataset.select(range(min(args.max_examples, len(dataset))))
     else:

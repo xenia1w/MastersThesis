@@ -6,7 +6,7 @@ from pathlib import Path
 
 FILTERED_DATASET_PATH = Path("data/processed/lexical_stylistic_prompting/tedlium_selected")
 
-from datasets import load_dataset, load_from_disk
+from datasets import Dataset, load_dataset, load_from_disk
 from loguru import logger
 from tqdm import tqdm
 from pydantic import BaseModel, computed_field
@@ -84,6 +84,7 @@ def load_tedlium_speakers(
     if FILTERED_DATASET_PATH.exists():
         logger.info(f"Loading filtered TED-LIUM dataset from {FILTERED_DATASET_PATH} ...")
         dataset = load_from_disk(str(FILTERED_DATASET_PATH))
+        assert isinstance(dataset, Dataset)
         if max_examples is not None:
             dataset = dataset.select(range(min(max_examples, len(dataset))))
     else:

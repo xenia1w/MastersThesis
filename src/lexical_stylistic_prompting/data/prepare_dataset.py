@@ -10,7 +10,7 @@ which baseline_eval.py loads directly on every subsequent run.
 
 from pathlib import Path
 
-from datasets import load_dataset
+from datasets import Dataset, load_dataset
 from loguru import logger
 
 SPEAKERS_FILE = Path("src/lexical_stylistic_prompting/data/speaker_selection/speakers_selected.txt")
@@ -31,12 +31,14 @@ def main() -> None:
         split="train",
         trust_remote_code=True,
     )
+    assert isinstance(dataset, Dataset)
     logger.info(f"Full dataset: {len(dataset):,} segments")
 
     filtered = dataset.filter(
         lambda ex: ex["speaker_id"] in selected,
         desc="Filtering",
     )
+    assert isinstance(filtered, Dataset)
     logger.info(f"Filtered dataset: {len(filtered):,} segments")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
