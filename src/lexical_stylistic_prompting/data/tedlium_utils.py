@@ -110,7 +110,7 @@ def load_tedlium_speakers(
     speakers: list[SpeakerData] = []
     n_dropped = 0
     for speaker_id, segs in by_speaker.items():
-        segs_sorted = sorted(segs, key=lambda s: s.segment_id)
+        segs_sorted = sorted(segs, key=lambda s: float(s.segment_id.split("-")[1]))
         if len(segs_sorted) < min_segments:
             n_dropped += 1
             continue
