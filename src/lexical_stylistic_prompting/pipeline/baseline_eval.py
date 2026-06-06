@@ -130,8 +130,10 @@ def main(args: argparse.Namespace) -> None:
     }
     logger.info(f"Building audio index for {len(needed_ids)} segments across {len(splits_to_process)} speakers ...")
 
-    if FILTERED_DATASET_PATH.exists():
-        dataset = load_from_disk(str(FILTERED_DATASET_PATH))
+    dataset_path = Path(args.dataset_path) if args.dataset_path else FILTERED_DATASET_PATH
+    if dataset_path.exists():
+        logger.info(f"Loading dataset from {dataset_path} ...")
+        dataset = load_from_disk(str(dataset_path))
         assert isinstance(dataset, Dataset)
         if args.max_examples is not None:
             dataset = dataset.select(range(min(args.max_examples, len(dataset))))
@@ -190,6 +192,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-test",       type=int, default=40, help="Fixed number of test segments (anchored to end of talk)")
     parser.add_argument("--min-segments", type=int, default=65, help="Minimum segments to include a speaker (must be >= skip-intro + n-profile + n-test)")
     parser.add_argument("--max-examples", type=int, default=None, help="Limit dataset rows loaded (smoke test)")
-    parser.add_argument("--speakers-file", default=None, help="Path to file with selected talk IDs, one per line")
+    parser.add_argument("--speakers-file",  default=None, help="Path to file with selected talk IDs, one per line")
+    parser.add_argument("--dataset-path",   default=None, help="Path to a pre-filtered HF dataset on disk (overrides default)")
     parser.add_argument("--max-test-segments", type=int, default=None, help="Cap test segments per speaker (smoke test)")
     main(parser.parse_args())
