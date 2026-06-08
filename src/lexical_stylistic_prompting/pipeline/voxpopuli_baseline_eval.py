@@ -73,9 +73,10 @@ def _save_csv(rows: list[VoxPopuliBaselineRow], path: Path) -> None:
     logger.info(f"Saved {len(rows)} rows → {path}")
 
 
-def _load_dataset(cache_dir: str | None) -> object:
+def _load_dataset(cache_dir: str | None, splits: list[str] | None = None) -> object:
+    hf_splits = splits if splits is not None else ["train", "validation", "test"]
     parts = []
-    for split in ("train", "validation", "test"):
+    for split in hf_splits:
         logger.info(f"Loading VoxPopuli {split} ...")
         parts.append(
             load_dataset(
@@ -104,6 +105,8 @@ def main(args: argparse.Namespace) -> None:
         chunk_length_s=30,
     )
 
+    hf_splits = args.splits.split(",") if args.splits else None
+
     logger.info("Building VoxPopuli speaker splits ...")
     dataset_splits = build_voxpopuli_splits(
         skip_intro=args.skip_intro,
@@ -112,6 +115,7 @@ def main(args: argparse.Namespace) -> None:
         min_segments=args.min_segments,
         cache_dir=args.cache_dir,
         max_examples=args.max_examples,
+        splits=hf_splits,
     )
     logger.info(f"Total eligible speakers: {dataset_splits.n_speakers}")
 
@@ -134,7 +138,7 @@ def main(args: argparse.Namespace) -> None:
     }
     logger.info(f"Need {len(needed_ids)} segments across {len(splits_to_process)} speakers")
 
-    dataset = _load_dataset(args.cache_dir)
+    dataset = _load_dataset(args.cache_dir, splits=hf_splits)
     seg_to_example: dict = {}
     for ex in tqdm(dataset, desc="Building audio index", unit="seg"):
         if ex["audio_id"] in needed_ids:
@@ -155,14 +159,14 @@ def main(args: argparse.Namespace) -> None:
 
         if rows:
             mean_wer = sum(r.wer for r in rows) / len(rows)
-            print(f"{split.speaker_id}: mean WER = {mean_wer:.4f} ({len(rows)} segments)")
+            logger.info(f"{split.speaker_id}: mean WER = {mean_wer:.4f} ({len(rows)} segments)")
 
         csv_name = f"voxpopuli_baseline_{split.speaker_id}.csv"
         _save_csv(rows, output_dir / csv_name)
 
     if all_rows:
         overall_mean = sum(r.wer for r in all_rows) / len(all_rows)
-        print(f"\nOverall mean WER = {overall_mean:.4f} ({len(all_rows)} segments, {len(splits_to_process)} speakers)")
+        logger.info(f"Overall mean WER = {overall_mean:.4f} ({len(all_rows)} segments, {len(splits_to_process)} speakers)")
 
 
 if __name__ == "__main__":
@@ -180,4 +184,5 @@ if __name__ == "__main__":
     parser.add_argument("--min-segments", type=int, default=65)
     parser.add_argument("--max-examples", type=int, default=None)
     parser.add_argument("--max-test-segments", type=int, default=None)
+    parser.add_argument("--splits", default=None, help="Comma-separated HF splits to load, e.g. 'train' or 'train,validation,test' (default: all three)")
     main(parser.parse_args())

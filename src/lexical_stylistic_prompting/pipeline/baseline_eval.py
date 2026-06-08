@@ -166,14 +166,14 @@ def main(args: argparse.Namespace) -> None:
 
         if rows:
             mean_wer = sum(r.wer for r in rows) / len(rows)
-            print(f"{split.speaker_id}: mean WER = {mean_wer:.4f} ({len(rows)} segments)")
+            logger.info(f"{split.speaker_id}: mean WER = {mean_wer:.4f} ({len(rows)} segments)")
 
         csv_name = f"tedlium_baseline_{split.speaker_id}.csv"
         _save_csv(rows, output_dir / csv_name)
 
     if all_rows:
         overall_mean = sum(r.wer for r in all_rows) / len(all_rows)
-        print(f"\nOverall mean WER = {overall_mean:.4f} ({len(all_rows)} segments, {len(splits_to_process)} speakers)")
+        logger.info(f"Overall mean WER = {overall_mean:.4f} ({len(all_rows)} segments, {len(splits_to_process)} speakers)")
 
 
 if __name__ == "__main__":
@@ -193,3 +193,4 @@ if __name__ == "__main__":
     parser.add_argument("--dataset-path",   default=None, help="Path to a pre-filtered HF dataset on disk (overrides default)")
     parser.add_argument("--max-test-segments", type=int, default=None, help="Cap test segments per speaker (smoke test)")
     main(parser.parse_args())
+

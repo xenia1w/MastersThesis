@@ -50,6 +50,7 @@ python -m src.lexical_stylistic_prompting.pipeline.voxpopuli_baseline_eval \
     --model        openai/whisper-medium \
     --output-dir   "$OUTPUT_DIR" \
     --cache-dir    data/cache/huggingface \
+    --splits       train \
     --n-speakers   10
 
 echo "=== VoxPopuli spot-check finished: $(date) ==="
