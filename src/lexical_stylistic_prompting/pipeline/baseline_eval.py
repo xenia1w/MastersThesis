@@ -168,15 +168,12 @@ def main(args: argparse.Namespace) -> None:
             mean_wer = sum(r.wer for r in rows) / len(rows)
             print(f"{split.speaker_id}: mean WER = {mean_wer:.4f} ({len(rows)} segments)")
 
-        if args.speaker:
-            csv_name = f"tedlium_baseline_{split.speaker_id}.csv"
-            _save_csv(rows, output_dir / csv_name)
+        csv_name = f"tedlium_baseline_{split.speaker_id}.csv"
+        _save_csv(rows, output_dir / csv_name)
 
-    if not args.speaker:
-        _save_csv(all_rows, output_dir / "tedlium_baseline.csv")
-        if all_rows:
-            overall_mean = sum(r.wer for r in all_rows) / len(all_rows)
-            print(f"\nOverall mean WER = {overall_mean:.4f} ({len(all_rows)} segments, {len(splits_to_process)} speakers)")
+    if all_rows:
+        overall_mean = sum(r.wer for r in all_rows) / len(all_rows)
+        print(f"\nOverall mean WER = {overall_mean:.4f} ({len(all_rows)} segments, {len(splits_to_process)} speakers)")
 
 
 if __name__ == "__main__":
