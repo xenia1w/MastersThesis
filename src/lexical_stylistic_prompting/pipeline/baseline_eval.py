@@ -102,6 +102,7 @@ def main(args: argparse.Namespace) -> None:
         min_segments=args.min_segments,
         cache_dir=args.cache_dir,
         max_examples=args.max_examples,
+        dataset_path=Path(args.dataset_path) if args.dataset_path else None,
     )
 
     # ── Filter speakers before touching audio ────────────────────────────────

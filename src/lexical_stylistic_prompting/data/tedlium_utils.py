@@ -80,16 +80,18 @@ def load_tedlium_speakers(
     min_segments: int = 20,
     cache_dir: str | None = None,
     max_examples: int | None = None,
+    dataset_path: Path | None = None,
 ) -> TedliumDataset:
-    if FILTERED_DATASET_PATH.exists():
-        logger.info(f"Loading filtered TED-LIUM dataset from {FILTERED_DATASET_PATH} ...")
-        dataset = load_from_disk(str(FILTERED_DATASET_PATH))
+    resolved_path = dataset_path if dataset_path is not None else FILTERED_DATASET_PATH
+    if resolved_path.exists():
+        logger.info(f"Loading filtered TED-LIUM dataset from {resolved_path} ...")
+        dataset = load_from_disk(str(resolved_path))
         assert isinstance(dataset, Dataset)
         if max_examples is not None:
             dataset = dataset.select(range(min(max_examples, len(dataset))))
     else:
         logger.warning(
-            f"Filtered dataset not found at {FILTERED_DATASET_PATH}. "
+            f"Filtered dataset not found at {resolved_path}. "
             "Run src/lexical_stylistic_prompting/data/prepare_dataset.py first. "
             "Falling back to full TED-LIUM dataset."
         )
@@ -130,6 +132,7 @@ def build_splits(
     min_segments: int = 65,
     cache_dir: str | None = None,
     max_examples: int | None = None,
+    dataset_path: Path | None = None,
 ) -> DatasetSplits:
     """Split each speaker's segments into a fixed profile window and a fixed test window.
 
@@ -145,7 +148,7 @@ def build_splits(
         f"min_segments ({min_segments}) must be >= skip_intro + n_profile + n_test "
         f"({skip_intro} + {n_profile} + {n_test} = {skip_intro + n_profile + n_test})"
     )
-    tedlium = load_tedlium_speakers(min_segments=min_segments, cache_dir=cache_dir, max_examples=max_examples)
+    tedlium = load_tedlium_speakers(min_segments=min_segments, cache_dir=cache_dir, max_examples=max_examples, dataset_path=dataset_path)
 
     splits: list[SpeakerSplit] = []
     for speaker in tedlium.speakers:
