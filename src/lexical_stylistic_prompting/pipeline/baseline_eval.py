@@ -19,7 +19,7 @@ from src.lexical_stylistic_prompting.data.tedlium_utils import (
     build_splits,
 )
 
-DEFAULT_MODEL = "openai/whisper-medium"
+DEFAULT_MODEL = "openai/whisper-small"
 
 
 class TedliumBaselineRow(BaseModel):
