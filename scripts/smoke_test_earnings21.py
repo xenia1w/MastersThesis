@@ -4,7 +4,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from pydantic import BaseModel
 from transformers import pipeline as hf_pipeline
+
+
+class _ASROutput(BaseModel):
+    text: str
 
 from src.asr_adaptation.metrics.wer import compute_wer
 from src.lexical_stylistic_prompting.data.earnings21_utils import (
@@ -31,7 +36,7 @@ audio = load_audio_segment(c.audio_path, seg.start_ts, seg.end_ts)
 
 print(f"Loading {MODEL} ...")
 pipe = hf_pipeline("automatic-speech-recognition", model=MODEL, chunk_length_s=30)
-hyp = pipe(audio)["text"].strip()
+hyp = _ASROutput.model_validate(pipe(audio)).text.strip()
 wer = compute_wer([seg.text], [hyp])
 
 print(f"Hypothesis: {hyp}")
