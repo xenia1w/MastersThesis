@@ -28,7 +28,7 @@
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:a100:1
-#SBATCH --partition=gpu_short
+#SBATCH --partition=gpu
 #SBATCH --account=qu
 #SBATCH --chdir=/home/users/x/xenia1w/MastersThesis
 #SBATCH --output=/home/users/x/xenia1w/MastersThesis/logs/tedlium_small_%A_%a.out
