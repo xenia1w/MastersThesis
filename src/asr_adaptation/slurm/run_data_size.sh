@@ -2,7 +2,7 @@
 # =============================================================================
 # run_data_size.sh
 # Data size sweep for RQ1.3: train LoRA on N utterances per speaker,
-# vary N across [20, 50, 100, 200, 300, 500], repeat 3 seeds each.
+# vary N across [20, 50, 100, 200, 300, 500], 1 seed.
 #
 # Total tasks = 4 speakers × 6 N-values × 1 seed = 24 jobs
 #

@@ -27,8 +27,11 @@ def run_data_size_single(
     Reuses run_lora_train() and saves a single-row CSV so that parallel
     SLURM jobs never write to the same file at the same time.
 
-    Output file: {output_dir}/{speaker_id}_{n_train:04d}_seed{seed}.csv
-    Columns: speaker_id, n_train, seed, wer_baseline, wer_adapted, wer_delta
+    Output files:
+      {output_dir}/{speaker_id}_{n_train:04d}_seed{seed}.csv
+        Columns: speaker_id, n_train, seed, wer_baseline, wer_adapted, wer_delta
+      {output_dir}/{speaker_id}_{n_train:04d}_seed{seed}_utterances.csv
+        Columns: speaker_id, n_train, seed, utterance_id, wer_baseline, wer_adapted
 
     Args:
         speaker_id: L2-ARCTIC speaker ID, e.g. "ABA".
@@ -39,7 +42,7 @@ def run_data_size_single(
         cache_dir: HuggingFace model cache directory.
 
     Returns:
-        Path to the saved CSV file.
+        Path to the saved aggregate CSV file.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -76,8 +79,28 @@ def run_data_size_single(
                 wer_delta=round(avg_adapted - avg_baseline, 4),
             )
         )
-
     logger.info(f"Saved → {out_path}")
+
+    utt_path = output_dir / f"{speaker_id}_{n_train:04d}_seed{seed}_utterances.csv"
+    with open(utt_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f, fieldnames=["speaker_id", "n_train", "seed",
+                           "utterance_id", "wer_baseline", "wer_adapted"]
+        )
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                dict(
+                    speaker_id=speaker_id,
+                    n_train=n_train,
+                    seed=seed,
+                    utterance_id=row.utterance_id,
+                    wer_baseline=round(row.wer_baseline, 4),
+                    wer_adapted=round(row.wer_adapted, 4),
+                )
+            )
+    logger.info(f"Saved utterances → {utt_path}")
+
     return out_path
 
 
