@@ -9,7 +9,8 @@ Four strategies:
 
 Usage:
   uv run -m src.lexical_stylistic_prompting.models.speaker_profile \\
-      --speaker BonnieBassler_2009 \\
+      --speaker <speaker_id> \\
+      --transcripts-file path/to/transcripts.txt \\
       --strategy free_form keyword_list keyword_expansion raw_context \\
       --n-profile 20
 """
@@ -27,8 +28,6 @@ from dotenv import load_dotenv
 from loguru import logger
 from openai import OpenAI
 from pydantic import BaseModel
-
-from src.lexical_stylistic_prompting.data.tedlium_utils import build_splits
 
 load_dotenv()
 
@@ -183,33 +182,29 @@ def load_profile(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build and cache speaker profiles")
-    parser.add_argument("--speaker",      required=True, help="Talk ID, e.g. BonnieBassler_2009")
-    parser.add_argument("--strategy",     nargs="+",
+    parser.add_argument("--speaker",          required=True, help="Speaker ID")
+    parser.add_argument("--transcripts-file", required=True,
+                        help="Text file with one profile-segment transcript per line")
+    parser.add_argument("--strategy",         nargs="+",
                         choices=[s.value for s in ProfileStrategy],
                         default=[s.value for s in ProfileStrategy],
-                        help="One or more strategies (default: all three)")
-    parser.add_argument("--n-profile",    type=int, default=20,
-                        help="Number of profile segments to use")
-    parser.add_argument("--kisski-model", default=DEFAULT_MODEL,
+                        help="One or more strategies (default: all)")
+    parser.add_argument("--n-profile",        type=int, default=20,
+                        help="Number of profile segments to use (first N lines of --transcripts-file)")
+    parser.add_argument("--kisski-model",     default=DEFAULT_MODEL,
                         help="Model name on KISSKI/SAIA")
-    parser.add_argument("--profiles-dir", default=str(PROFILES_DIR),
+    parser.add_argument("--profiles-dir",     default=str(PROFILES_DIR),
                         help="Output directory for profile JSON files")
-    parser.add_argument("--skip-existing", action="store_true",
+    parser.add_argument("--skip-existing",    action="store_true",
                         help="Skip strategies that already have a cached profile")
     args = parser.parse_args()
 
     profiles_dir = Path(args.profiles_dir)
     strategies   = [ProfileStrategy(s) for s in args.strategy]
 
-    # Load profile-segment transcripts from TED-LIUM reference texts
-    logger.info("Loading speaker splits ...")
-    splits = build_splits(n_profile=args.n_profile)
-    split  = next((s for s in splits.splits if s.speaker_id == args.speaker), None)
-    if split is None:
-        logger.error(f"Speaker {args.speaker!r} not found in splits.")
-        return
-
-    transcripts = [seg.text for seg in split.profile_segments]
+    transcripts_path = Path(args.transcripts_file)
+    transcripts = [l.strip() for l in transcripts_path.read_text().splitlines() if l.strip()]
+    transcripts = transcripts[:args.n_profile]
     logger.info(f"Loaded {len(transcripts)} profile transcripts for {args.speaker}")
 
     client = _get_client()

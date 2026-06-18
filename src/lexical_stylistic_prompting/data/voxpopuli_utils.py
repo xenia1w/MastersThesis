@@ -4,12 +4,12 @@ from datasets import concatenate_datasets, load_dataset
 from loguru import logger
 from tqdm import tqdm
 
-from src.lexical_stylistic_prompting.data.tedlium_utils import (
+from src.lexical_stylistic_prompting.data.common_types import (
     DatasetSplits,
+    SegmentMeta,
     SpeakerData,
+    SpeakerDataset,
     SpeakerSplit,
-    TedliumDataset,
-    TedliumSegmentMeta,
 )
 
 VOXPOPULI_REPO = "facebook/voxpopuli"
@@ -21,7 +21,7 @@ def load_voxpopuli_speakers(
     cache_dir: str | None = None,
     max_examples: int | None = None,
     splits: list[str] | None = None,
-) -> TedliumDataset:
+) -> SpeakerDataset:
     if splits is None:
         splits = ["train", "validation", "test"]
 
@@ -41,14 +41,14 @@ def load_voxpopuli_speakers(
 
     dataset = concatenate_datasets(parts)
 
-    by_speaker: dict[str, list[TedliumSegmentMeta]] = {}
+    by_speaker: dict[str, list[SegmentMeta]] = {}
     for example in tqdm(dataset, desc="Indexing speakers", unit="seg"):
         if not example.get("is_gold_transcript", True):
             continue
         text = example["normalized_text"].strip()
         if not text:
             continue
-        seg = TedliumSegmentMeta(
+        seg = SegmentMeta(
             segment_id=example["audio_id"],
             speaker_id=example["speaker_id"],
             talk_id=example["speaker_id"],
@@ -69,7 +69,7 @@ def load_voxpopuli_speakers(
         f"Kept {len(speakers)} speakers with >= {min_segments} segments "
         f"(dropped {n_dropped})"
     )
-    return TedliumDataset(speakers=speakers)
+    return SpeakerDataset(speakers=speakers)
 
 
 def build_voxpopuli_splits(

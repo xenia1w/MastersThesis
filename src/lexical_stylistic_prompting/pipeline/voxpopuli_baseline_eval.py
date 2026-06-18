@@ -13,7 +13,7 @@ from tqdm import tqdm
 from transformers import pipeline as hf_pipeline
 
 from src.asr_adaptation.metrics.wer import compute_wer
-from src.lexical_stylistic_prompting.data.tedlium_utils import SpeakerSplit
+from src.lexical_stylistic_prompting.data.common_types import SpeakerSplit
 from src.lexical_stylistic_prompting.data.voxpopuli_utils import (
     VOXPOPULI_CONFIG,
     VOXPOPULI_REPO,
