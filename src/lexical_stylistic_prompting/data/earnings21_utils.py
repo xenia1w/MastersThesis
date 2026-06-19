@@ -313,4 +313,4 @@ def load_audio_segment(audio_path: Path, start_ts: float, end_ts: float) -> dict
         duration=end_ts - start_ts,
         mono=True,
     )
-    return {"array": audio.astype(np.float32), "sampling_rate": SAMPLE_RATE}
+    return {"raw": audio.astype(np.float32), "sampling_rate": SAMPLE_RATE}
