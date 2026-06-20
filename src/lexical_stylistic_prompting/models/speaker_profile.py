@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
 from dotenv import load_dotenv
 from loguru import logger
-from openai import OpenAI
+from openai import APITimeoutError, OpenAI
 from pydantic import BaseModel
 
 from src.lexical_stylistic_prompting.models.prompts import (
@@ -44,26 +45,42 @@ def _get_client() -> OpenAI:
         raise EnvironmentError(
             "Set KISSKI_API_KEY or SAIA_API_KEY in your environment or .env file."
         )
-    return OpenAI(base_url=KISSKI_BASE_URL, api_key=api_key)
+    return OpenAI(
+        base_url=KISSKI_BASE_URL,
+        api_key=api_key,
+        timeout=LLM_TIMEOUT_SECONDS,
+        max_retries=0,
+    )
 
 
-LLM_TIMEOUT_SECONDS = 60
+LLM_TIMEOUT_SECONDS = 120
+LLM_MAX_RETRIES = 3
+LLM_RETRY_WAIT_SECONDS = 10
 
 
 def _llm_call(client: OpenAI, model: str, system: str, user: str) -> str:
-    logger.info(f"Sending request to KISSKI ({model}) ...")
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        temperature=0.2,
-        timeout=LLM_TIMEOUT_SECONDS,
-    )
-    content = response.choices[0].message.content
-    assert content is not None, "LLM returned empty content"
-    return content.strip()
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
+        try:
+            logger.info(f"Sending request to KISSKI ({model}), attempt {attempt}/{LLM_MAX_RETRIES} ...")
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0.2,
+                max_tokens=200,
+                timeout=LLM_TIMEOUT_SECONDS,
+            )
+            content = response.choices[0].message.content
+            assert content is not None, "LLM returned empty content"
+            return content.strip()
+        except APITimeoutError:
+            if attempt == LLM_MAX_RETRIES:
+                raise
+            logger.warning(f"KISSKI timed out, retrying in {LLM_RETRY_WAIT_SECONDS}s ...")
+            time.sleep(LLM_RETRY_WAIT_SECONDS)
+    raise RuntimeError("unreachable")
 
 
 def build_profile(

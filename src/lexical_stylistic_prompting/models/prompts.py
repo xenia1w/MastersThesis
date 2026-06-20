@@ -13,4 +13,5 @@ This is an earnings call for {company_name}, a company operating in the {sector}
 Generate a comma-separated list of named entities, ticker symbols, financial abbreviations, \
 executive names, product names, and domain-specific terms likely to appear in this call. \
 Focus on rare or uncommon words that ASR systems commonly mis-transcribe.
+Limit your list to at most 50 terms so it fits within the ASR system's context window.
 Return only the comma-separated list — no explanation, no numbering."""
