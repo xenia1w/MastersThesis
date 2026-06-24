@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from datetime import datetime, timezone
 from enum import Enum
@@ -89,6 +90,17 @@ def _llm_call(client: OpenAI, model: str, system: str, user: str) -> str:
     raise RuntimeError("unreachable")
 
 
+def _normalize_prompt(raw: str) -> str:
+    """Normalize LLM output to a clean comma-separated term list.
+
+    Handles: runs of commas, newlines used as separators, leading/trailing whitespace.
+    """
+    # Treat newlines as additional separators before splitting on commas
+    cleaned = raw.replace("\n", ",")
+    terms = [t.strip() for t in re.split(r"[,\s]*,[,\s]*", cleaned)]
+    return ", ".join(t for t in terms if t)
+
+
 def _build_transcript_prompt(
     segments: list[str],
     system: str,
@@ -140,6 +152,7 @@ def build_profile(
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
 
+    prompt = _normalize_prompt(prompt)
     return SpeakerProfile(
         speaker_id=speaker_id,
         n_profile=n_profile,
