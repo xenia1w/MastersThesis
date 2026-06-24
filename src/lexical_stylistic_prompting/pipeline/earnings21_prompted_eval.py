@@ -42,8 +42,8 @@ from src.lexical_stylistic_prompting.data.earnings21_utils import (
     load_audio_segment,
     load_earnings21,
 )
+from src.lexical_stylistic_prompting.models.constants import PROFILES_DIR
 from src.lexical_stylistic_prompting.models.speaker_profile import (
-    PROFILES_DIR,
     ProfileStrategy,
     load_profile,
 )

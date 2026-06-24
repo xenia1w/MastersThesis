@@ -16,17 +16,28 @@ from pydantic import BaseModel
 from src.lexical_stylistic_prompting.models.prompts import (
     METADATA_ONLY_SYSTEM,
     METADATA_ONLY_USER,
+    TRANSCRIPT_ONLY_SYSTEM,
+    TRANSCRIPT_ONLY_USER,
+    TRANSCRIPT_PLUS_KNOWLEDGE_SYSTEM,
+    TRANSCRIPT_PLUS_KNOWLEDGE_USER,
+)
+
+from src.lexical_stylistic_prompting.models.constants import (
+    DEFAULT_MODEL,
+    KISSKI_BASE_URL,
+    LLM_MAX_RETRIES,
+    LLM_RETRY_WAIT_SECONDS,
+    LLM_TIMEOUT_SECONDS,
+    PROFILES_DIR,
 )
 
 load_dotenv()
 
-PROFILES_DIR = Path("data/processed/lexical_stylistic_prompting/profiles")
-KISSKI_BASE_URL = "https://chat-ai.academiccloud.de/v1"
-DEFAULT_MODEL = "meta-llama-3.1-8b-instruct"
-
 
 class ProfileStrategy(str, Enum):
     METADATA_ONLY = "metadata_only"
+    TRANSCRIPT_ONLY = "transcript_only"
+    TRANSCRIPT_PLUS_KNOWLEDGE = "transcript_plus_knowledge"
 
 
 class SpeakerProfile(BaseModel):
@@ -36,7 +47,6 @@ class SpeakerProfile(BaseModel):
     model: str
     prompt: str
     created_at: str
-
 
 
 def _get_client() -> OpenAI:
@@ -53,11 +63,6 @@ def _get_client() -> OpenAI:
     )
 
 
-LLM_TIMEOUT_SECONDS = 120
-LLM_MAX_RETRIES = 3
-LLM_RETRY_WAIT_SECONDS = 10
-
-
 def _llm_call(client: OpenAI, model: str, system: str, user: str) -> str:
     for attempt in range(1, LLM_MAX_RETRIES + 1):
         try:
@@ -70,6 +75,7 @@ def _llm_call(client: OpenAI, model: str, system: str, user: str) -> str:
                 ],
                 temperature=0.2,
                 max_tokens=200,
+                frequency_penalty=1.2,
                 timeout=LLM_TIMEOUT_SECONDS,
             )
             content = response.choices[0].message.content
@@ -83,13 +89,26 @@ def _llm_call(client: OpenAI, model: str, system: str, user: str) -> str:
     raise RuntimeError("unreachable")
 
 
+def _build_transcript_prompt(
+    segments: list[str],
+    system: str,
+    user_template: str,
+    client: OpenAI,
+    model: str,
+) -> str:
+    transcript = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(segments))
+    user_msg = user_template.format(n_segments=len(segments), transcript=transcript)
+    return _llm_call(client, model, system, user_msg)
+
+
 def build_profile(
     speaker_id: str,
     strategy: ProfileStrategy,
     n_profile: int,
-    company_name: str,
-    sector: str,
-    financial_quarter: str,
+    company_name: str = "",
+    sector: str = "",
+    financial_quarter: str = "",
+    segments: list[str] | None = None,
     model: str = DEFAULT_MODEL,
     client: OpenAI | None = None,
 ) -> SpeakerProfile:
@@ -103,6 +122,21 @@ def build_profile(
             financial_quarter=financial_quarter,
         )
         prompt = _llm_call(client, model, METADATA_ONLY_SYSTEM, user_msg)
+
+    elif strategy == ProfileStrategy.TRANSCRIPT_ONLY:
+        if not segments:
+            raise ValueError("TRANSCRIPT_ONLY strategy requires non-empty segments")
+        prompt = _build_transcript_prompt(
+            segments, TRANSCRIPT_ONLY_SYSTEM, TRANSCRIPT_ONLY_USER, client, model
+        )
+
+    elif strategy == ProfileStrategy.TRANSCRIPT_PLUS_KNOWLEDGE:
+        if not segments:
+            raise ValueError("TRANSCRIPT_PLUS_KNOWLEDGE strategy requires non-empty segments")
+        prompt = _build_transcript_prompt(
+            segments, TRANSCRIPT_PLUS_KNOWLEDGE_SYSTEM, TRANSCRIPT_PLUS_KNOWLEDGE_USER, client, model
+        )
+
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
 
@@ -117,8 +151,9 @@ def build_profile(
 
 
 def save_profile(profile: SpeakerProfile, profiles_dir: Path = PROFILES_DIR) -> Path:
-    profiles_dir.mkdir(parents=True, exist_ok=True)
-    out = profiles_dir / f"{profile.speaker_id}_{profile.n_profile}_{profile.strategy.value}.json"
+    out_dir = profiles_dir / profile.strategy.value
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{profile.speaker_id}_{profile.n_profile}.json"
     out.write_text(profile.model_dump_json(indent=2))
     logger.info(f"Saved profile → {out}")
     return out
@@ -130,6 +165,5 @@ def load_profile(
     strategy: ProfileStrategy,
     profiles_dir: Path = PROFILES_DIR,
 ) -> SpeakerProfile:
-    path = profiles_dir / f"{speaker_id}_{n_profile}_{strategy.value}.json"
+    path = profiles_dir / strategy.value / f"{speaker_id}_{n_profile}.json"
     return SpeakerProfile.model_validate_json(path.read_text())
-
