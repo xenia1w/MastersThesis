@@ -29,6 +29,7 @@ from src.lexical_stylistic_prompting.models.constants import (
     LLM_TIMEOUT_SECONDS,
     MAX_PROMPT_TERMS,
     MAX_PROMPT_TOKENS,
+    MAX_WORDS_PER_TERM,
     PROFILES_DIR,
 )
 from src.lexical_stylistic_prompting.models.prompts import (
@@ -77,8 +78,10 @@ def _llm_call(client: OpenAI, model: str, system: str, user: str) -> str:
                     {"role": "user", "content": user},
                 ],
                 temperature=0.2,
-                max_tokens=300,
-                frequency_penalty=1.1,
+                max_tokens=160,
+                # No frequency penalty: it penalizes the reused comma/space tokens in a
+                # list and pushes the model into prose ("clean terms, then a sentence").
+                frequency_penalty=0.0,
                 timeout=LLM_TIMEOUT_SECONDS,
             )
             content = response.choices[0].message.content
@@ -132,8 +135,13 @@ def _fit_token_budget(terms: list[str], max_tokens: int = MAX_PROMPT_TOKENS) -> 
 
 
 def normalize_prompt(raw: str) -> str:
-    """Turn a raw LLM response into a clean, deduplicated, budget-fitted keyword list."""
-    terms = _dedupe(_split_terms(raw))[:MAX_PROMPT_TERMS]
+    """Turn a raw LLM response into a clean, deduplicated, budget-fitted keyword list.
+
+    Drops overly long items (prose that slipped past the comma split) before deduping,
+    capping the term count, and trimming to Whisper's prompt-token budget.
+    """
+    terms = [t for t in _split_terms(raw) if len(t.split()) <= MAX_WORDS_PER_TERM]
+    terms = _dedupe(terms)[:MAX_PROMPT_TERMS]
     terms = _fit_token_budget(terms)
     return ", ".join(terms)
 
@@ -190,3 +198,4 @@ def load_profile(
 ) -> SpeakerProfile:
     path = profiles_dir / strategy.value / f"{speaker_id}_{n_profile}.json"
     return SpeakerProfile.model_validate_json(path.read_text())
+

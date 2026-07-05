@@ -17,3 +17,5 @@ LLM_RETRY_WAIT_SECONDS = 10
 # keyword list comfortably under that so it always fits and biasing stays effective.
 MAX_PROMPT_TOKENS = 200
 MAX_PROMPT_TERMS = 40
+# A keyword is a short phrase; anything longer is prose that slipped through and is dropped.
+MAX_WORDS_PER_TERM = 5
