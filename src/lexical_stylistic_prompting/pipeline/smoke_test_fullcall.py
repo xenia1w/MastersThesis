@@ -49,6 +49,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--call-id", required=True)
+    parser.add_argument("--strategy", default=ProfileStrategy.METADATA_ONLY.value,
+                        choices=[s.value for s in ProfileStrategy],
+                        help="Which profile strategy to smoke-test")
     parser.add_argument("--profiles-dir", default=str(PROFILES_DIR))
     parser.add_argument("--n-profile", type=int, default=20)
     parser.add_argument("--max-eval-seconds", type=float, default=300.0,
@@ -78,14 +81,14 @@ def main() -> int:
     if prompt_text is None:
         try:
             prompt_text = load_profile(
-                call.call_id, args.n_profile, ProfileStrategy.METADATA_ONLY, Path(args.profiles_dir)
+                call.call_id, args.n_profile, ProfileStrategy(args.strategy), Path(args.profiles_dir)
             ).prompt
         except FileNotFoundError:
             logger.error(
-                f"No metadata_only profile for {call.call_id}. Build profiles first, or pass --prompt."
+                f"No {args.strategy} profile for {call.call_id}. Build profiles first, or pass --prompt."
             )
             return 1
-    logger.info(f"Prompt ({len(prompt_text.split(','))} terms): {prompt_text}")
+    logger.info(f"Strategy: {args.strategy} | Prompt ({len(prompt_text.split(','))} terms): {prompt_text}")
 
     model = whisper.load_model(args.model, device=device, download_root=args.download_root)
 
@@ -94,8 +97,8 @@ def main() -> int:
     logger.info("── Running BASELINE (no prompt) ──")
     base = evaluate_call(call, args.n_profile, "baseline", model, fp16, None,
                          args.max_eval_segments, secs)
-    logger.info("── Running METADATA_ONLY (prompted) ──")
-    prom = evaluate_call(call, args.n_profile, "metadata_only", model, fp16, prompt_text,
+    logger.info(f"── Running {args.strategy.upper()} (prompted) ──")
+    prom = evaluate_call(call, args.n_profile, args.strategy, model, fp16, prompt_text,
                          args.max_eval_segments, secs)
 
     # 1. CRASH

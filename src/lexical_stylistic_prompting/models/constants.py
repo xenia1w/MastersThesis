@@ -5,6 +5,10 @@ from pathlib import Path
 # Where LLM-generated ASR context profiles are cached (one subdir per strategy).
 PROFILES_DIR = Path("data/processed/lexical_stylistic_prompting/profiles")
 
+# Noisy unprompted Whisper transcripts of each call's first n_profile turns, consumed by the
+# transcript_only / transcript_plus_knowledge profile builders.
+PROFILE_TRANSCRIPTS_DIR = Path("data/processed/lexical_stylistic_prompting/profile_transcripts")
+
 # KISSKI / SAIA academic-cloud OpenAI-compatible endpoint used to build profiles.
 KISSKI_BASE_URL = "https://chat-ai.academiccloud.de/v1"
 DEFAULT_LLM_MODEL = "qwen3-30b-a3b-instruct-2507"

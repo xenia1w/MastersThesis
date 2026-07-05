@@ -35,6 +35,10 @@ from src.lexical_stylistic_prompting.models.constants import (
 from src.lexical_stylistic_prompting.models.prompts import (
     METADATA_ONLY_SYSTEM,
     METADATA_ONLY_USER,
+    TRANSCRIPT_ONLY_SYSTEM,
+    TRANSCRIPT_ONLY_USER,
+    TRANSCRIPT_PLUS_KNOWLEDGE_SYSTEM,
+    TRANSCRIPT_PLUS_KNOWLEDGE_USER,
 )
 
 load_dotenv()
@@ -42,6 +46,8 @@ load_dotenv()
 
 class ProfileStrategy(str, Enum):
     METADATA_ONLY = "metadata_only"
+    TRANSCRIPT_ONLY = "transcript_only"
+    TRANSCRIPT_PLUS_KNOWLEDGE = "transcript_plus_knowledge"
 
 
 class SpeakerProfile(BaseModel):
@@ -146,6 +152,15 @@ def normalize_prompt(raw: str) -> str:
     return ", ".join(terms)
 
 
+_TRANSCRIPT_PROMPTS = {
+    ProfileStrategy.TRANSCRIPT_ONLY: (TRANSCRIPT_ONLY_SYSTEM, TRANSCRIPT_ONLY_USER),
+    ProfileStrategy.TRANSCRIPT_PLUS_KNOWLEDGE: (
+        TRANSCRIPT_PLUS_KNOWLEDGE_SYSTEM,
+        TRANSCRIPT_PLUS_KNOWLEDGE_USER,
+    ),
+}
+
+
 def build_profile(
     speaker_id: str,
     strategy: ProfileStrategy,
@@ -153,6 +168,8 @@ def build_profile(
     company_name: str = "",
     sector: str = "",
     financial_quarter: str = "",
+    transcript: str = "",
+    n_segments: int = 0,
     model: str = DEFAULT_LLM_MODEL,
     client: OpenAI | None = None,
 ) -> SpeakerProfile:
@@ -167,6 +184,16 @@ def build_profile(
             max_terms=MAX_PROMPT_TERMS,
         )
         raw = _llm_call(client, model, METADATA_ONLY_SYSTEM, user_msg)
+    elif strategy in _TRANSCRIPT_PROMPTS:
+        if not transcript.strip():
+            raise ValueError(f"{strategy.value} requires a non-empty transcript")
+        system, user_template = _TRANSCRIPT_PROMPTS[strategy]
+        user_msg = user_template.format(
+            n_segments=n_segments,
+            transcript=transcript,
+            max_terms=MAX_PROMPT_TERMS,
+        )
+        raw = _llm_call(client, model, system, user_msg)
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
 
