@@ -66,3 +66,27 @@ TRANSCRIPT_PLUS_KNOWLEDGE_SYSTEM = (
 )
 
 TRANSCRIPT_PLUS_KNOWLEDGE_USER = TRANSCRIPT_ONLY_USER
+
+# ── transcript_metadata_knowledge ─────────────────────────────────────────────
+# Combines the noisy transcript, the company metadata, and the spelling-correction
+# instruction (knowledge system prompt) in a single request.
+
+TRANSCRIPT_METADATA_KNOWLEDGE_SYSTEM = TRANSCRIPT_PLUS_KNOWLEDGE_SYSTEM
+
+TRANSCRIPT_METADATA_KNOWLEDGE_USER = """\
+This is an earnings call for {company_name}, a company in the {sector} sector (Q{financial_quarter}).
+
+The following is a partial transcript of this call ({n_segments} speaker turns):
+
+{transcript}
+
+Using BOTH the company metadata above and the transcript, generate a comma-separated list of \
+named entities, ticker symbols, financial abbreviations, executive names, product names, and \
+domain-specific terms that appear or are likely to appear in this call. Focus on rare or uncommon \
+words that ASR systems commonly mis-transcribe.
+
+Rules:
+- Output ONLY a single comma-separated list of terms.
+- Each item is a short term (1-4 words). No sentences, no explanations, no numbering.
+- At most {max_terms} terms. Do not repeat any term.
+"""

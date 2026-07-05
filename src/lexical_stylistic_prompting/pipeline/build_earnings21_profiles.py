@@ -45,6 +45,7 @@ from src.lexical_stylistic_prompting.models.speaker_profile import (
 _TRANSCRIPT_STRATEGIES = {
     ProfileStrategy.TRANSCRIPT_ONLY,
     ProfileStrategy.TRANSCRIPT_PLUS_KNOWLEDGE,
+    ProfileStrategy.TRANSCRIPT_METADATA_KNOWLEDGE,
 }
 
 

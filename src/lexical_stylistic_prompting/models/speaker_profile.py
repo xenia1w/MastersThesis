@@ -35,6 +35,8 @@ from src.lexical_stylistic_prompting.models.constants import (
 from src.lexical_stylistic_prompting.models.prompts import (
     METADATA_ONLY_SYSTEM,
     METADATA_ONLY_USER,
+    TRANSCRIPT_METADATA_KNOWLEDGE_SYSTEM,
+    TRANSCRIPT_METADATA_KNOWLEDGE_USER,
     TRANSCRIPT_ONLY_SYSTEM,
     TRANSCRIPT_ONLY_USER,
     TRANSCRIPT_PLUS_KNOWLEDGE_SYSTEM,
@@ -48,6 +50,7 @@ class ProfileStrategy(str, Enum):
     METADATA_ONLY = "metadata_only"
     TRANSCRIPT_ONLY = "transcript_only"
     TRANSCRIPT_PLUS_KNOWLEDGE = "transcript_plus_knowledge"
+    TRANSCRIPT_METADATA_KNOWLEDGE = "transcript_metadata_knowledge"
 
 
 class SpeakerProfile(BaseModel):
@@ -158,6 +161,10 @@ _TRANSCRIPT_PROMPTS = {
         TRANSCRIPT_PLUS_KNOWLEDGE_SYSTEM,
         TRANSCRIPT_PLUS_KNOWLEDGE_USER,
     ),
+    ProfileStrategy.TRANSCRIPT_METADATA_KNOWLEDGE: (
+        TRANSCRIPT_METADATA_KNOWLEDGE_SYSTEM,
+        TRANSCRIPT_METADATA_KNOWLEDGE_USER,
+    ),
 }
 
 
@@ -192,6 +199,9 @@ def build_profile(
             n_segments=n_segments,
             transcript=transcript,
             max_terms=MAX_PROMPT_TERMS,
+            company_name=company_name,
+            sector=sector,
+            financial_quarter=financial_quarter,
         )
         raw = _llm_call(client, model, system, user_msg)
     else:
