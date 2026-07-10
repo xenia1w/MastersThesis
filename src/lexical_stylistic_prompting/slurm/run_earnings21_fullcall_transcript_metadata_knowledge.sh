@@ -55,7 +55,9 @@ export WHISPER_CACHE="$PROJECT_DIR/data/cache/whisper"
 source .venv/bin/activate
 
 CALL_IDS_FILE="${CALL_IDS_FILE:-data/raw/earnings21/call_ids.txt}"
-OUTPUT_DIR="data/processed/lexical_stylistic_prompting/earnings21_fullcall_transcript_metadata_knowledge"
+PROMPT_FORMAT="${PROMPT_FORMAT:-list}"
+SUFFIX=""; [ "$PROMPT_FORMAT" = "prose" ] && SUFFIX="_prose"
+OUTPUT_DIR="data/processed/lexical_stylistic_prompting/earnings21_fullcall_transcript_metadata_knowledge${SUFFIX}"
 PROFILES_DIR="data/processed/lexical_stylistic_prompting/profiles"
 
 mkdir -p logs "$OUTPUT_DIR" "$WHISPER_CACHE"
@@ -72,6 +74,7 @@ python -m src.lexical_stylistic_prompting.pipeline.earnings21_fullcall_eval \
     --profiles-dir  "$PROFILES_DIR" \
     --output        "${OUTPUT_DIR}/prompted_${CALL_ID}.csv" \
     --strategy      transcript_metadata_knowledge \
+    --prompt-format "$PROMPT_FORMAT" \
     --n-profile     20 \
     --call-id       "$CALL_ID"
 
