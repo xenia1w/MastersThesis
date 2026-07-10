@@ -23,3 +23,6 @@ MAX_PROMPT_TOKENS = 200
 MAX_PROMPT_TERMS = 40
 # A keyword is a short phrase; anything longer is prose that slipped through and is dropped.
 MAX_WORDS_PER_TERM = 5
+# Word cap for the prose (natural-sentence) format. Kept well under MAX_PROMPT_TOKENS so the
+# passage always fits Whisper's prompt window; the token budget is still enforced as a backstop.
+MAX_PROMPT_WORDS = 60

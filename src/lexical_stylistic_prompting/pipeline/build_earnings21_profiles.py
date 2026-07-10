@@ -37,8 +37,10 @@ from src.lexical_stylistic_prompting.models.constants import (
 )
 from src.lexical_stylistic_prompting.models.speaker_profile import (
     ProfileStrategy,
+    PromptFormat,
     _get_client,
     build_profile,
+    profile_subdir,
     save_profile,
 )
 
@@ -70,6 +72,9 @@ def main() -> None:
     parser.add_argument("--strategy", default=ProfileStrategy.METADATA_ONLY.value,
                         choices=[s.value for s in ProfileStrategy],
                         help="Profile strategy to use")
+    parser.add_argument("--prompt-format", default=PromptFormat.LIST.value,
+                        choices=[f.value for f in PromptFormat],
+                        help="initial_prompt surface form: keyword list or natural prose")
     parser.add_argument("--n-profile", type=int, default=20,
                         help="Profile window size (segments skipped from eval, default 20)")
     parser.add_argument("--transcripts-dir", default=str(PROFILE_TRANSCRIPTS_DIR),
@@ -83,6 +88,7 @@ def main() -> None:
     profiles_dir = Path(args.profiles_dir)
     transcripts_dir = Path(args.transcripts_dir)
     strategy = ProfileStrategy(args.strategy)
+    prompt_format = PromptFormat(args.prompt_format)
     rows = _load_metadata(Path(args.data_dir))
 
     if args.call_id:
@@ -96,7 +102,7 @@ def main() -> None:
 
     for row in rows:
         call_id = row["file_id"].strip()
-        out_path = profiles_dir / strategy.value / f"{call_id}_{args.n_profile}.json"
+        out_path = profiles_dir / profile_subdir(strategy, prompt_format) / f"{call_id}_{args.n_profile}.json"
 
         if args.skip_existing and out_path.exists():
             logger.info(f"{call_id}: skipping (cached)")
@@ -129,11 +135,12 @@ def main() -> None:
             financial_quarter=financial_quarter,
             transcript=transcript,
             n_segments=n_segments,
+            prompt_format=prompt_format,
             model=args.kisski_model,
             client=client,
         )
         save_profile(profile, profiles_dir)
-        logger.info(f"{call_id}: prompt ({len(profile.prompt.split(','))} terms): {profile.prompt[:120]} ...")
+        logger.info(f"{call_id}: {prompt_format.value} prompt: {profile.prompt[:120]} ...")
         built += 1
 
     logger.info(f"Done — built {built}, skipped {skipped} / {len(rows)} calls")
