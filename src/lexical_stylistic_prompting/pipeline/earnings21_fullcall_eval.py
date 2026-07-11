@@ -48,6 +48,7 @@ from src.lexical_stylistic_prompting.data.earnings21_utils import (
 from src.lexical_stylistic_prompting.models.constants import PROFILES_DIR
 from src.lexical_stylistic_prompting.models.speaker_profile import (
     ProfileStrategy,
+    PromptFormat,
     load_profile,
 )
 
@@ -219,6 +220,9 @@ def main() -> None:
     parser.add_argument("--strategy", default=ProfileStrategy.METADATA_ONLY.value,
                         choices=["baseline", *[s.value for s in ProfileStrategy]])
     parser.add_argument("--profiles-dir", default=str(PROFILES_DIR))
+    parser.add_argument("--prompt-format", default=PromptFormat.LIST.value,
+                        choices=[f.value for f in PromptFormat],
+                        help="list (comma-separated keywords) or prose profile variant")
     parser.add_argument("--n-profile", type=int, default=20)
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Whisper model name, e.g. 'medium'")
     parser.add_argument("--download-root", default=None, help="openai-whisper weights cache dir")
@@ -231,12 +235,13 @@ def main() -> None:
 
     is_baseline = args.strategy == "baseline"
     strategy = None if is_baseline else ProfileStrategy(args.strategy)
+    prompt_format = PromptFormat(args.prompt_format)
 
     device = "cuda" if torch.cuda.is_available() else (
         "mps" if torch.backends.mps.is_available() else "cpu"
     )
     fp16 = device == "cuda"
-    logger.info(f"Device: {device} | Model: {args.model} | Strategy: {args.strategy}")
+    logger.info(f"Device: {device} | Model: {args.model} | Strategy: {args.strategy} | Format: {args.prompt_format}")
 
     model = whisper.load_model(args.model, device=device, download_root=args.download_root)
 
@@ -253,9 +258,9 @@ def main() -> None:
         prompt_text: str | None = None
         if strategy is not None:
             try:
-                profile = load_profile(call.call_id, args.n_profile, strategy, profiles_dir)
+                profile = load_profile(call.call_id, args.n_profile, strategy, profiles_dir, prompt_format)
             except FileNotFoundError:
-                logger.warning(f"{call.call_id}: no {args.strategy} profile found, skipping")
+                logger.warning(f"{call.call_id}: no {args.strategy}/{args.prompt_format} profile found, skipping")
                 continue
             prompt_text = profile.prompt
 

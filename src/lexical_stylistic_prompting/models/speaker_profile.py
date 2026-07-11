@@ -29,12 +29,21 @@ from src.lexical_stylistic_prompting.models.constants import (
     LLM_TIMEOUT_SECONDS,
     MAX_PROMPT_TERMS,
     MAX_PROMPT_TOKENS,
+    MAX_PROMPT_WORDS,
     MAX_WORDS_PER_TERM,
     PROFILES_DIR,
 )
 from src.lexical_stylistic_prompting.models.prompts import (
+    LIST_FORMAT_RULES,
     METADATA_ONLY_SYSTEM,
     METADATA_ONLY_USER,
+    PROSE_FORMAT_RULES,
+    TRANSCRIPT_METADATA_KNOWLEDGE_SYSTEM,
+    TRANSCRIPT_METADATA_KNOWLEDGE_USER,
+    TRANSCRIPT_ONLY_SYSTEM,
+    TRANSCRIPT_ONLY_USER,
+    TRANSCRIPT_PLUS_KNOWLEDGE_SYSTEM,
+    TRANSCRIPT_PLUS_KNOWLEDGE_USER,
 )
 
 load_dotenv()
@@ -42,12 +51,34 @@ load_dotenv()
 
 class ProfileStrategy(str, Enum):
     METADATA_ONLY = "metadata_only"
+    TRANSCRIPT_ONLY = "transcript_only"
+    TRANSCRIPT_PLUS_KNOWLEDGE = "transcript_plus_knowledge"
+    TRANSCRIPT_METADATA_KNOWLEDGE = "transcript_metadata_knowledge"
+
+
+class PromptFormat(str, Enum):
+    """Surface form of the injected initial_prompt — orthogonal to ProfileStrategy (RQ2.1)."""
+
+    LIST = "list"
+    PROSE = "prose"
+
+
+def profile_subdir(strategy: ProfileStrategy, prompt_format: PromptFormat) -> str:
+    """Sub-directory name for a strategy×format combination.
+
+    LIST keeps the historical ``<strategy>`` layout so existing list profiles and their
+    eval paths stay valid; PROSE lands in a sibling ``<strategy>_prose`` directory.
+    """
+    if prompt_format == PromptFormat.LIST:
+        return strategy.value
+    return f"{strategy.value}_{prompt_format.value}"
 
 
 class SpeakerProfile(BaseModel):
     speaker_id: str
     n_profile: int
     strategy: ProfileStrategy
+    prompt_format: PromptFormat = PromptFormat.LIST
     model: str
     prompt: str
     created_at: str
@@ -146,6 +177,43 @@ def normalize_prompt(raw: str) -> str:
     return ", ".join(terms)
 
 
+def _fit_prose_token_budget(text: str, max_tokens: int = MAX_PROMPT_TOKENS) -> str:
+    """Drop trailing words until the passage fits within Whisper's prompt window."""
+    tokenizer = _whisper_tokenizer()
+    kept: list[str] = []
+    for word in text.split():
+        candidate = " ".join(kept + [word])
+        # Whisper prepends a space before the prompt; mirror that when counting.
+        if len(tokenizer.encode(" " + candidate)) > max_tokens:
+            break
+        kept.append(word)
+    return " ".join(kept)
+
+
+def normalize_prose(raw: str) -> str:
+    """Turn a raw LLM response into a single clean, budget-fitted prose passage.
+
+    Unlike ``normalize_prompt`` this preserves sentence structure: it only collapses
+    whitespace/newlines, strips wrapping quotes the model sometimes adds, and trims to
+    Whisper's prompt-token budget — no comma-splitting, deduping, or term capping.
+    """
+    text = " ".join(raw.split()).strip("\"'")
+    return _fit_prose_token_budget(text)
+
+
+_TRANSCRIPT_PROMPTS = {
+    ProfileStrategy.TRANSCRIPT_ONLY: (TRANSCRIPT_ONLY_SYSTEM, TRANSCRIPT_ONLY_USER),
+    ProfileStrategy.TRANSCRIPT_PLUS_KNOWLEDGE: (
+        TRANSCRIPT_PLUS_KNOWLEDGE_SYSTEM,
+        TRANSCRIPT_PLUS_KNOWLEDGE_USER,
+    ),
+    ProfileStrategy.TRANSCRIPT_METADATA_KNOWLEDGE: (
+        TRANSCRIPT_METADATA_KNOWLEDGE_SYSTEM,
+        TRANSCRIPT_METADATA_KNOWLEDGE_USER,
+    ),
+}
+
+
 def build_profile(
     speaker_id: str,
     strategy: ProfileStrategy,
@@ -153,28 +221,50 @@ def build_profile(
     company_name: str = "",
     sector: str = "",
     financial_quarter: str = "",
+    transcript: str = "",
+    n_segments: int = 0,
+    prompt_format: PromptFormat = PromptFormat.LIST,
     model: str = DEFAULT_LLM_MODEL,
     client: OpenAI | None = None,
 ) -> SpeakerProfile:
     if client is None:
         client = _get_client()
 
+    if prompt_format == PromptFormat.PROSE:
+        format_rules = PROSE_FORMAT_RULES.format(max_words=MAX_PROMPT_WORDS)
+    else:
+        format_rules = LIST_FORMAT_RULES.format(max_terms=MAX_PROMPT_TERMS)
+
     if strategy == ProfileStrategy.METADATA_ONLY:
         user_msg = METADATA_ONLY_USER.format(
             company_name=company_name,
             sector=sector,
             financial_quarter=financial_quarter,
-            max_terms=MAX_PROMPT_TERMS,
+            format_rules=format_rules,
         )
         raw = _llm_call(client, model, METADATA_ONLY_SYSTEM, user_msg)
+    elif strategy in _TRANSCRIPT_PROMPTS:
+        if not transcript.strip():
+            raise ValueError(f"{strategy.value} requires a non-empty transcript")
+        system, user_template = _TRANSCRIPT_PROMPTS[strategy]
+        user_msg = user_template.format(
+            n_segments=n_segments,
+            transcript=transcript,
+            company_name=company_name,
+            sector=sector,
+            financial_quarter=financial_quarter,
+            format_rules=format_rules,
+        )
+        raw = _llm_call(client, model, system, user_msg)
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
 
-    prompt = normalize_prompt(raw)
+    prompt = normalize_prose(raw) if prompt_format == PromptFormat.PROSE else normalize_prompt(raw)
     return SpeakerProfile(
         speaker_id=speaker_id,
         n_profile=n_profile,
         strategy=strategy,
+        prompt_format=prompt_format,
         model=model,
         prompt=prompt,
         created_at=datetime.now(timezone.utc).isoformat(),
@@ -182,7 +272,7 @@ def build_profile(
 
 
 def save_profile(profile: SpeakerProfile, profiles_dir: Path = PROFILES_DIR) -> Path:
-    out_dir = profiles_dir / profile.strategy.value
+    out_dir = profiles_dir / profile_subdir(profile.strategy, profile.prompt_format)
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{profile.speaker_id}_{profile.n_profile}.json"
     out.write_text(profile.model_dump_json(indent=2))
@@ -195,7 +285,8 @@ def load_profile(
     n_profile: int,
     strategy: ProfileStrategy,
     profiles_dir: Path = PROFILES_DIR,
+    prompt_format: PromptFormat = PromptFormat.LIST,
 ) -> SpeakerProfile:
-    path = profiles_dir / strategy.value / f"{speaker_id}_{n_profile}.json"
+    path = profiles_dir / profile_subdir(strategy, prompt_format) / f"{speaker_id}_{n_profile}.json"
     return SpeakerProfile.model_validate_json(path.read_text())
 
