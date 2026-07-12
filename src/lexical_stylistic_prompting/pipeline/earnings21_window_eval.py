@@ -94,8 +94,8 @@ def main() -> None:
     parser.add_argument("--profiles-dir", default=str(PROFILES_DIR))
     parser.add_argument("--prompt-format", default=PromptFormat.LIST.value,
                         choices=[f.value for f in PromptFormat])
-    parser.add_argument("--profile-tag", default="0300",
-                        help="tag identifying the profile window in the profile filename")
+    parser.add_argument("--profile-tag", default="300",
+                        help="tag identifying the profile window in the profile filename (v2: 300 = 300s)")
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--download-root", default=None)
     parser.add_argument("--output", required=True)
