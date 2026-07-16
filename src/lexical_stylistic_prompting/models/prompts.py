@@ -112,3 +112,35 @@ commonly mis-transcribe.
 
 {format_rules}
 """
+
+
+# ── post-hoc correction (RQ2 extension) ────────────────────────────────────────
+# Conservative, verbatim ASR error-correction of a single (1-best) Whisper hypothesis.
+# The reference is verbatim .nlp text (disfluencies, exact spoken wording), so the model
+# must NOT rewrite/clean up — only fix clear recognition errors. See arXiv 2409.09554 /
+# 2307.04172: over-correction (rewriting already-correct words) is the main failure mode
+# with a single hypothesis, so edit freedom is tightly constrained.
+
+POSTHOC_CORRECT_SYSTEM = """\
+You correct automatic-speech-recognition (ASR) errors in earnings-call transcripts.
+
+You are given a chunk of a raw ASR transcript. Return the SAME text with only genuine \
+recognition errors fixed. This is a verbatim transcript, not an edit for readability.
+
+Rules:
+- Preserve wording exactly: same words, same order. Do NOT paraphrase, rephrase, summarize, \
+translate, reorder, or "clean up" grammar.
+- Keep disfluencies and false starts verbatim (um, uh, "we-we", repeated words, incomplete \
+sentences). Do NOT remove filler words.
+- Do NOT add or delete content. The output length must closely match the input.
+- Only fix words that were clearly MIS-HEARD: misrecognized common words, company/product/person \
+names, ticker symbols, financial terms and abbreviations, and numbers.
+- Keep the same casing and punctuation style as the input; do not re-punctuate.
+- If a passage is already correct, return it unchanged.
+- Output ONLY the corrected transcript text, with no preamble, notes, or quotation marks."""
+
+POSTHOC_CORRECT_USER = """\
+Raw ASR transcript chunk:
+
+{chunk}"""
+

@@ -18,13 +18,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from loguru import logger
-from openai import APITimeoutError, OpenAI
+from openai import APITimeoutError, OpenAI, RateLimitError
 from pydantic import BaseModel
 
 from src.lexical_stylistic_prompting.models.constants import (
     DEFAULT_LLM_MODEL,
     KISSKI_BASE_URL,
+    KISSKI_REQUESTS_PER_MINUTE,
     LLM_MAX_RETRIES,
+    LLM_RATE_LIMIT_MAX_RETRIES,
     LLM_RETRY_WAIT_SECONDS,
     LLM_TIMEOUT_SECONDS,
     MAX_PROMPT_TERMS,
@@ -98,10 +100,43 @@ def _get_client() -> OpenAI:
     )
 
 
-def _llm_call(client: OpenAI, model: str, system: str, user: str) -> str:
-    for attempt in range(1, LLM_MAX_RETRIES + 1):
+# Client-side throttle so batch runs stay under KISSKI's per-minute request cap. Shared across
+# all callers in the process (single-threaded); enforces a minimum gap between requests.
+_MIN_REQUEST_INTERVAL = 60.0 / KISSKI_REQUESTS_PER_MINUTE
+_last_request_time = 0.0
+
+
+def _throttle() -> None:
+    global _last_request_time
+    wait = _MIN_REQUEST_INTERVAL - (time.monotonic() - _last_request_time)
+    if wait > 0:
+        time.sleep(wait)
+    _last_request_time = time.monotonic()
+
+
+def _retry_after_seconds(err: RateLimitError) -> float | None:
+    """Seconds to wait from a 429's headers (retry-after / ratelimit-reset), if present."""
+    response = getattr(err, "response", None)
+    headers = getattr(response, "headers", None)
+    if not headers:
+        return None
+    for key in ("retry-after", "ratelimit-reset", "x-ratelimit-reset"):
+        value = headers.get(key)
+        if value:
+            try:
+                return float(value) + 1.0  # small buffer past the reset boundary
+            except ValueError:
+                continue
+    return None
+
+
+def _llm_call(client: OpenAI, model: str, system: str, user: str, max_tokens: int = 160) -> str:
+    timeout_attempts = 0
+    rate_limit_attempts = 0
+    while True:
+        _throttle()
         try:
-            logger.info(f"Sending request to KISSKI ({model}), attempt {attempt}/{LLM_MAX_RETRIES} ...")
+            logger.debug(f"Sending request to KISSKI ({model}) ...")
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -109,7 +144,7 @@ def _llm_call(client: OpenAI, model: str, system: str, user: str) -> str:
                     {"role": "user", "content": user},
                 ],
                 temperature=0.2,
-                max_tokens=160,
+                max_tokens=max_tokens,
                 # No frequency penalty: it penalizes the reused comma/space tokens in a
                 # list and pushes the model into prose ("clean terms, then a sentence").
                 frequency_penalty=0.0,
@@ -119,11 +154,19 @@ def _llm_call(client: OpenAI, model: str, system: str, user: str) -> str:
             assert content is not None, "LLM returned empty content"
             return content.strip()
         except APITimeoutError:
-            if attempt == LLM_MAX_RETRIES:
+            timeout_attempts += 1
+            if timeout_attempts >= LLM_MAX_RETRIES:
                 raise
             logger.warning(f"KISSKI timed out, retrying in {LLM_RETRY_WAIT_SECONDS}s ...")
             time.sleep(LLM_RETRY_WAIT_SECONDS)
-    raise RuntimeError("unreachable")
+        except RateLimitError as err:
+            rate_limit_attempts += 1
+            if rate_limit_attempts > LLM_RATE_LIMIT_MAX_RETRIES:
+                raise
+            wait = _retry_after_seconds(err) or LLM_RETRY_WAIT_SECONDS
+            logger.warning(f"KISSKI rate-limited (429), attempt {rate_limit_attempts}/"
+                           f"{LLM_RATE_LIMIT_MAX_RETRIES}, waiting {wait:.0f}s ...")
+            time.sleep(wait)
 
 
 @lru_cache(maxsize=1)
