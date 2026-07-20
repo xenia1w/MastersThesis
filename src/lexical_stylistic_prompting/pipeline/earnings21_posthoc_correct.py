@@ -20,10 +20,22 @@ Design (see arXiv 2409.09554 / 2307.04172):
 - Sentence-boundary chunking (~200 words) keeps each LLM call short so verbatim discipline
   holds and output length can't drift/truncate over a long span.
 
+Two modes:
+- blind (default): the LLM sees only the eval-window chunk (writes to earnings21_window_posthoc_blind).
+- context (--use-context): each chunk is corrected with the unprompted 0:00-5:00 transcript of the
+  SAME call as an in-prompt reference — self-contained (no metadata, no LLM-built profile), the
+  post-hoc counterpart of the transcript_only prompting method. Writes to
+  earnings21_window_posthoc_context. The reference is raw ASR, so the prompt treats it as a hint
+  only and forbids copying from it.
+
 Usage:
+    # blind
+    uv run -m src.lexical_stylistic_prompting.pipeline.earnings21_posthoc_correct --skip-existing
+    # context (0:00-5:00 self-reference)
     uv run -m src.lexical_stylistic_prompting.pipeline.earnings21_posthoc_correct \\
-        --baseline data/processed/lexical_stylistic_prompting/v2/earnings21_window_baseline/baseline_all.csv \\
-        --skip-existing
+        --use-context --skip-existing
+
+Score either with earnings21_window_score.py --approach posthoc_blind / posthoc_context.
 """
 
 from __future__ import annotations
@@ -31,6 +43,7 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import json
 import re
 from pathlib import Path
 
@@ -42,6 +55,8 @@ from pydantic import BaseModel
 from src.asr_adaptation.metrics.wer import compute_wer
 from src.lexical_stylistic_prompting.models.constants import DEFAULT_LLM_MODEL
 from src.lexical_stylistic_prompting.models.prompts import (
+    POSTHOC_CONTEXT_SYSTEM,
+    POSTHOC_CONTEXT_USER,
     POSTHOC_CORRECT_SYSTEM,
     POSTHOC_CORRECT_USER,
 )
@@ -53,6 +68,15 @@ DEFAULT_BASELINE = Path(
 DEFAULT_OUT_DIR = Path(
     "data/processed/lexical_stylistic_prompting/v2/earnings21_window_posthoc_blind"
 )
+# "context" mode: correct the [5:00, 15:00] window using the unprompted 0:00-5:00 transcript of
+# the same call as an in-prompt reference (self-contained — no metadata, no LLM-built profile).
+DEFAULT_CONTEXT_OUT_DIR = Path(
+    "data/processed/lexical_stylistic_prompting/v2/earnings21_window_posthoc_context"
+)
+DEFAULT_PROFILE_TRANSCRIPTS_DIR = Path(
+    "data/processed/lexical_stylistic_prompting/v2/profile_transcripts"
+)
+DEFAULT_PROFILE_TAG = 300  # profile-window length in seconds; filenames are <call_id>_<tag>.json
 # Sentence-grouped chunk size sent to the LLM. Larger chunks = fewer requests (KISSKI caps at
 # ~10/min, 200/hour, 400/day); a ~1,400-word window at 450 words is ~3 requests instead of ~7.
 CHUNK_TARGET_WORDS = 450
@@ -100,28 +124,34 @@ def chunk_text(text: str, target_words: int = CHUNK_TARGET_WORDS) -> list[str]:
 
 # ── correction ────────────────────────────────────────────────────────────────
 
-def _correct_chunk(client: OpenAI, model: str, chunk: str) -> str:
+def _correct_chunk(client: OpenAI, model: str, chunk: str,
+                   reference: str | None = None) -> str:
     words = len(chunk.split())
     # allow headroom over the input length so a correct-length output never truncates
     max_tokens = max(256, int(words * 2) + 64)
-    raw = _llm_call(
-        client,
-        model,
-        POSTHOC_CORRECT_SYSTEM,
-        POSTHOC_CORRECT_USER.format(chunk=chunk),
-        max_tokens=max_tokens,
-    )
+    if reference:
+        system = POSTHOC_CONTEXT_SYSTEM
+        user = POSTHOC_CONTEXT_USER.format(reference=reference, chunk=chunk)
+    else:
+        system = POSTHOC_CORRECT_SYSTEM
+        user = POSTHOC_CORRECT_USER.format(chunk=chunk)
+    raw = _llm_call(client, model, system, user, max_tokens=max_tokens)
     return raw.strip().strip("\"'").strip()
 
 
 def correct_hypothesis(client: OpenAI, model: str, hypothesis: str,
-                       chunk_words: int = CHUNK_TARGET_WORDS, label: str = "") -> str:
-    """Correct a full window hypothesis chunk-by-chunk and reassemble it."""
+                       chunk_words: int = CHUNK_TARGET_WORDS, label: str = "",
+                       reference: str | None = None) -> str:
+    """Correct a full window hypothesis chunk-by-chunk and reassemble it.
+
+    When ``reference`` is given (the 0:00-5:00 transcript of the same call), each chunk is
+    corrected with that preamble as an in-prompt hint; otherwise correction is blind.
+    """
     chunks = chunk_text(hypothesis, chunk_words)
     corrected: list[str] = []
     for i, chunk in enumerate(chunks, 1):
         logger.info(f"    {label} chunk {i}/{len(chunks)} ({len(chunk.split())} words) → KISSKI ...")
-        corrected.append(_correct_chunk(client, model, chunk))
+        corrected.append(_correct_chunk(client, model, chunk, reference))
     return " ".join(part for part in corrected if part).strip()
 
 
@@ -133,8 +163,10 @@ def _edit_ratio(raw: str, corrected: str) -> float:
 
 
 def process_call(client: OpenAI, model: str, call_id: str, raw: str,
-                 max_edit_ratio: float, chunk_words: int = CHUNK_TARGET_WORDS) -> PosthocRow:
-    corrected = correct_hypothesis(client, model, raw, chunk_words, label=call_id)
+                 max_edit_ratio: float, chunk_words: int = CHUNK_TARGET_WORDS,
+                 reference: str | None = None) -> PosthocRow:
+    corrected = correct_hypothesis(client, model, raw, chunk_words, label=call_id,
+                                   reference=reference)
     ratio = _edit_ratio(raw, corrected)
     guard = ratio > max_edit_ratio or not corrected.strip()
     if guard:
@@ -170,11 +202,30 @@ def _merge_all(out_dir: Path) -> Path:
     return merged
 
 
+def _load_reference(ref_dir: Path, call_id: str, tag: int) -> str:
+    """Load the unprompted 0:00-5:00 transcript used as an in-prompt correction hint."""
+    path = ref_dir / f"{call_id}_{tag}.json"
+    if not path.exists():
+        logger.warning(f"{call_id}: no reference transcript at {path} — correcting this call blind")
+        return ""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return str(data.get("transcript", "")).strip()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Post-hoc LLM correction of v2 baseline hypotheses")
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE,
                         help="baseline_all.csv with call_id + hypothesis columns")
-    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
+    parser.add_argument("--out-dir", type=Path, default=None,
+                        help="output dir (default: posthoc_blind, or posthoc_context in context mode)")
+    parser.add_argument("--use-context", action="store_true",
+                        help="correct each call using its unprompted 0:00-5:00 transcript as an "
+                             "in-prompt reference (self-contained; no metadata/profile)")
+    parser.add_argument("--reference-transcripts-dir", type=Path,
+                        default=DEFAULT_PROFILE_TRANSCRIPTS_DIR,
+                        help="dir of 0:00-5:00 transcripts (<call_id>_<tag>.json) for --use-context")
+    parser.add_argument("--profile-tag", type=int, default=DEFAULT_PROFILE_TAG,
+                        help="reference-transcript filename tag (profile-window seconds)")
     parser.add_argument("--model", default=DEFAULT_LLM_MODEL)
     parser.add_argument("--max-edit-ratio", type=float, default=DEFAULT_MAX_EDIT_RATIO,
                         help="revert to the raw hypothesis if the correction changed more than this")
@@ -185,7 +236,10 @@ def main() -> None:
                         help="Skip calls that already have a posthoc_<id>.csv")
     args = parser.parse_args()
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = args.out_dir or (DEFAULT_CONTEXT_OUT_DIR if args.use_context else DEFAULT_OUT_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    mode = "context (0:00-5:00 reference)" if args.use_context else "blind"
+    logger.info(f"Post-hoc correction mode: {mode} → {out_dir}")
     df = pd.read_csv(args.baseline)
     df["call_id"] = df["call_id"].astype(str)
     if args.call_id:
@@ -200,23 +254,30 @@ def main() -> None:
 
     for idx, (_, r) in enumerate(df.iterrows(), 1):
         call_id = str(r["call_id"])
-        out_path = args.out_dir / f"posthoc_{call_id}.csv"
+        out_path = out_dir / f"posthoc_{call_id}.csv"
         if args.skip_existing and out_path.exists():
             logger.info(f"[{idx}/{total}] {call_id}: skipping (cached)")
             skipped += 1
             continue
         raw = str(r["hypothesis"]) if pd.notna(r["hypothesis"]) else ""
+        reference = (
+            _load_reference(args.reference_transcripts_dir, call_id, args.profile_tag)
+            if args.use_context else None
+        )
         n_chunks = len(chunk_text(raw, args.chunk_words))
-        logger.info(f"[{idx}/{total}] {call_id}: correcting {len(raw.split())} words in {n_chunks} chunks ...")
-        row = process_call(client, args.model, call_id, raw, args.max_edit_ratio, args.chunk_words)
-        _write_row(args.out_dir, row)
+        ref_note = f", ref={len(reference.split())}w" if reference else ""
+        logger.info(f"[{idx}/{total}] {call_id}: correcting {len(raw.split())} words "
+                    f"in {n_chunks} chunks{ref_note} ...")
+        row = process_call(client, args.model, call_id, raw, args.max_edit_ratio,
+                           args.chunk_words, reference=reference)
+        _write_row(out_dir, row)
         corrected += 1
         reverted += int(row.guard_applied)
         logger.success(f"[{idx}/{total}] {call_id}: done — edit_ratio={row.edit_ratio} "
                        f"guard={row.guard_applied} ({row.raw_words}→{row.corrected_words} words)")
 
     logger.success(f"Finished — corrected {corrected} (reverted {reverted}), skipped {skipped} / {total}")
-    _merge_all(args.out_dir)
+    _merge_all(out_dir)
 
 
 if __name__ == "__main__":

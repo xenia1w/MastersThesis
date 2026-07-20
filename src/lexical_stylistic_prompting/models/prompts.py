@@ -144,3 +144,44 @@ Raw ASR transcript chunk:
 
 {chunk}"""
 
+# Self-contained "context" variant: the same strict verbatim correction, but the chunk is
+# accompanied by a REFERENCE transcript — the unprompted Whisper output for the first five
+# minutes (0:00-5:00) of the SAME call. That preamble (operator script, speaker introductions,
+# company name) is entity-dense, so it hints at how names/terms recur in this call. Crucially
+# the reference is itself raw ASR and may carry the same errors, so the prompt forbids copying
+# from it and treats it as a hint only. This is the post-hoc counterpart of the transcript_only
+# prompting method (same 0-5 transcript, injected after decoding instead of via initial_prompt).
+
+POSTHOC_CONTEXT_SYSTEM = """\
+You correct automatic-speech-recognition (ASR) errors in earnings-call transcripts.
+
+You are given a chunk of a raw ASR transcript to correct, together with a REFERENCE transcript \
+of the opening of the SAME call (its first few minutes). The reference is itself raw ASR and may \
+contain its own errors. Use it ONLY as a hint for how company names, people, product and ticker \
+names, and recurring terms appear in this call. Do NOT copy from the reference and do NOT insert \
+its words where they were not spoken in the chunk.
+
+Return the SAME chunk text with only genuine recognition errors fixed. This is a verbatim \
+transcript, not an edit for readability.
+
+Rules:
+- Preserve wording exactly: same words, same order. Do NOT paraphrase, rephrase, summarize, \
+translate, reorder, or "clean up" grammar.
+- Keep disfluencies and false starts verbatim (um, uh, "we-we", repeated words, incomplete \
+sentences). Do NOT remove filler words.
+- Do NOT add or delete content. The output length must closely match the input.
+- Only fix words that were clearly MIS-HEARD: misrecognized common words, company/product/person \
+names, ticker symbols, financial terms and abbreviations, and numbers.
+- Keep the same casing and punctuation style as the input; do not re-punctuate.
+- If a passage is already correct, return it unchanged.
+- Output ONLY the corrected transcript chunk, with no preamble, notes, or quotation marks."""
+
+POSTHOC_CONTEXT_USER = """\
+Reference transcript (first minutes of the same call, raw ASR — may contain errors, use as a hint only):
+
+{reference}
+
+Raw ASR transcript chunk to correct:
+
+{chunk}"""
+
