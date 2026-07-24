@@ -185,3 +185,45 @@ Raw ASR transcript chunk to correct:
 
 {chunk}"""
 
+# Profile variant: the chunk is corrected using a CURATED entity profile rather than the raw
+# 0:00-5:00 transcript. The profile is the LLM-built, spell-corrected transcript_metadata_knowledge
+# list for the SAME call (company, ticker, executive, product names, financial abbreviations). Unlike
+# the raw-transcript context reference, this profile is authoritative: it is the corrector's canonical
+# spelling of exactly the entities that drive entity error rate, so — the opposite of the context
+# prompt — the model is told to TRUST it and adopt its spellings for any entity it recognises as
+# mis-heard. This is the post-hoc counterpart of injecting the same profile into Whisper's
+# initial_prompt (RQ2: one profile, two injection points — decode-time vs post-decode correction).
+
+POSTHOC_PROFILE_SYSTEM = """\
+You correct automatic-speech-recognition (ASR) errors in earnings-call transcripts.
+
+You are given a chunk of a raw ASR transcript to correct, together with a PROFILE of this call: a \
+curated list of the company, ticker, executive, product, and domain-specific terms it contains, \
+with their correct spelling. Treat the profile as authoritative: when a word in the chunk is a \
+mis-heard version of a profile term, replace it with the profile's spelling.  \
+
+Return the SAME chunk text with only genuine recognition errors fixed. This is a verbatim \
+transcript, not an edit for readability.
+
+Rules:
+- Preserve wording exactly: same words, same order. Do NOT paraphrase, rephrase, summarize, \
+translate, reorder, or "clean up" grammar.
+- Keep disfluencies and false starts verbatim (um, uh, "we-we", repeated words, incomplete \
+sentences). Do NOT remove filler words.
+- Do NOT add or delete content. The output length must closely match the input.
+- Only fix words that were clearly MIS-HEARD: misrecognized common words, and especially \
+company/product/person names, ticker symbols, financial terms and abbreviations, and numbers — \
+using the profile's spelling for any entity it lists.
+- Keep the same casing and punctuation style as the input; do not re-punctuate.
+- If a passage is already correct, return it unchanged.
+- Output ONLY the corrected transcript chunk, with no preamble, notes, or quotation marks."""
+
+POSTHOC_PROFILE_USER = """\
+Profile of this call (authoritative spellings of the entities and terms it contains):
+
+{profile}
+
+Raw ASR transcript chunk to correct:
+
+{chunk}"""
+

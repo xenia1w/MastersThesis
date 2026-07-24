@@ -14,10 +14,18 @@ SAMPLE_RATE = 16_000
 RTTM_MERGE_GAP = 2.0   # merge consecutive same-speaker RTTM segments within this gap
 MAX_SEGMENT_DURATION = 30.0  # split turns longer than this for Whisper
 
-# Entity types that represent genuine vocabulary challenges for ASR
+# Entity types counted by the Entity Error Rate. Rule: include every genuine semantic
+# named-entity category the corpus annotates, and exclude pure number/formatting normalization
+# tags whose "errors" are normalization artifacts rather than recognition failures. This keeps
+# the metric a true *entity* error rate while avoiding an arbitrary hand-picked subset.
+# Semantic types kept include MONEY/DATE/TIME/YEAR (a wrong amount or year is a content error).
+# Excluded by design: CONTRACTION, CARDINAL, PERCENT, ORDINAL, ALPHANUMERIC, RANGE, QUANTITY
+# (number/measurement normalization — e.g. "three miles", "165 feet"); FALLBACK (symbols +
+# partial-word disfluencies such as "profitab-"); TWITTER (2 web-handle fragments, negligible).
 VOCABULARY_ENTITY_TYPES = {
     "ORG", "PERSON", "PRODUCT", "GPE", "LOC", "FAC",
     "WEBSITE", "ABBREVIATION", "MONEY", "DATE", "TIME", "YEAR",
+    "NORP", "EVENT", "LAW", "WORK_OF_ART", "LANGUAGE",
 }
 
 
