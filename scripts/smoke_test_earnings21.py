@@ -12,7 +12,7 @@ class _ASROutput(BaseModel):
     text: str
 
 from src.asr_adaptation.metrics.wer import compute_wer
-from src.lexical_stylistic_prompting.data.earnings21_utils import (
+from src.linguistic_prompting.data.earnings21_utils import (
     load_audio_segment,
     load_earnings21,
 )

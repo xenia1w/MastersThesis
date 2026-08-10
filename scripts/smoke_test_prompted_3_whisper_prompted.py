@@ -18,11 +18,11 @@ from loguru import logger
 from transformers import WhisperProcessor, pipeline as hf_pipeline
 
 from src.asr_adaptation.metrics.wer import compute_wer
-from src.lexical_stylistic_prompting.data.earnings21_utils import (
+from src.linguistic_prompting.data.earnings21_utils import (
     load_audio_segment,
     load_earnings21,
 )
-from src.lexical_stylistic_prompting.models.speaker_profile import (
+from src.linguistic_prompting.models.speaker_profile import (
     ProfileStrategy,
     load_profile,
 )

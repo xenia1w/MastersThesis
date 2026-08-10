@@ -1,8 +1,12 @@
-# Phases 2 & 3 — ASR Speaker Adaptation
+# Part 1 — ASR Speaker Adaptation (RQ1)
 
 Fine-tune `facebook/wav2vec2-base-960h` with per-speaker LoRA adapters using
-labeled L2-ARCTIC utterances. Phase 3 extends Phase 2 by adding FiLM
-(Feature-wise Linear Modulation) speaker conditioning on top of LoRA.
+labeled L2-ARCTIC utterances, then add FiLM (Feature-wise Linear Modulation)
+speaker conditioning on top of LoRA to inject an acoustic profile.
+
+Two questions drive the sections below: does per-speaker adaptation reduce WER at
+all (LoRA), and does conditioning on an *acoustic profile* add anything beyond it
+(FiLM, plus a wrong-speaker control to prove the profile is actually used).
 
 All commands are run from the **project root**.
 
@@ -65,10 +69,25 @@ uv run python -m src.asr_adaptation.pipeline.lora_train \
 
 Optional flags: `--n-train 100`, `--n-epochs 10`, `--seed 0`
 
-**All speakers in parallel (on cluster):**
+**All 24 speakers in parallel (on cluster):**
 ```bash
-sbatch --array=0-17 src/asr_adaptation/slurm/run_lora_speaker.sh
+sbatch --array=0-23 src/asr_adaptation/slurm/run_lora_speaker.sh
 ```
+
+> **`run_lora_speaker.sh` vs `run_lora_speaker_wav2vec2.sh`.** These two now select
+> the **same** profile extractor. `--profile-extractor` has defaulted to `wav2vec2`
+> since it was introduced (commit `1367a22`), and `run_lora_speaker.sh` passes no such
+> flag, so it gets wav2vec2 too — the `_wav2vec2` script merely states it explicitly
+> and writes to `data/processed/asr_adaptation_wav2vec2/` instead.
+>
+> The header comment inside `run_lora_speaker_wav2vec2.sh` ("so WavLM results are not
+> overwritten") predates that default and is now misleading: neither script produces
+> WavLM profiles. On disk the split is already unambiguous — the WavLM-era outputs sit
+> in explicitly named directories (`asr_adaptation/wavlm_baseline_wer/`,
+> `baseline_wer_wavlm/`), while the LoRA adaptation results are under
+> `asr_adaptation_wav2vec2/adaptation_results/`.
+>
+> For a genuine WavLM ablation, pass `--profile-extractor wavlm` explicitly.
 
 Output:
 - `data/processed/asr_adaptation/lora_weights/{speaker_id}/` — saved LoRA adapter weights
@@ -87,8 +106,10 @@ awk -F',' 'NR>1 {b+=$7; a+=$8; c++} END {printf "Baseline: %.3f  Adapted: %.3f\n
 
 ### 3. Data Size Sweep — RQ1.3 (Ticket #6)
 
-Trains LoRA on N utterances (N ∈ {1, 5, 10, 20, 50, 100, 200}), repeated across 3 seeds,
-to find how much data is needed before adaptation becomes effective.
+Trains LoRA on N utterances (N ∈ {20, 50, 100, 200, 300, 500}) to find how much data
+is needed before adaptation becomes effective. Run on 4 representative speakers
+(RRBI, ERMS, LXC, HQTV) with a single seed — the values live in `N_VALUES` / `SEEDS`
+in `data_size_analysis.py` and are mirrored in `run_data_size.sh`.
 
 Each job handles one `(speaker, N, seed)` combination and writes its own CSV file,
 avoiding write conflicts when hundreds of jobs run simultaneously on the cluster.
@@ -106,10 +127,16 @@ uv run python -m src.asr_adaptation.pipeline.data_size_analysis run \
 
 Output: `data/processed/asr_adaptation/data_size_curves/ABA_0010_seed0.csv`
 
-**Full sweep — 18 speakers × 7 N-values × 3 seeds = 378 jobs (on cluster):**
+**Full sweep — 4 speakers × 6 N-values × 1 seed = 24 jobs (on cluster):**
 ```bash
-sbatch --array=0-377 src/asr_adaptation/slurm/run_data_size.sh
+sbatch --array=0-23 src/asr_adaptation/slurm/run_data_size.sh
+
+# Quick test — first 6 tasks = speaker 0, all N-values:
+sbatch --array=0-5  src/asr_adaptation/slurm/run_data_size.sh
 ```
+
+> Single seed means each point on the curve is one run, with no seed variance.
+> That is a deliberate compute trade-off; note it when reporting the sweep.
 
 **After all jobs finish — merge into per-speaker summary files:**
 ```bash
@@ -120,8 +147,6 @@ uv run python -m src.asr_adaptation.pipeline.data_size_analysis merge \
 Output per speaker: `data/processed/asr_adaptation/data_size_curves/{speaker_id}_wer_vs_n.csv`
 
 CSV columns: `speaker_id, n_train, seed, wer_baseline, wer_adapted, wer_delta`
-
----
 
 ---
 
@@ -143,6 +168,12 @@ uv run python -m src.asr_adaptation.pipeline.film_train \
 ```
 
 Optional flags: `--n-train 200`, `--n-epochs 10`, `--profile-layer -1`, `--no-profile` (LoRA-only ablation)
+
+**Profile extractor.** Defaults to `--profile-extractor wav2vec2`
+(`facebook/wav2vec2-base`), which shares transformer weights with the
+`wav2vec2-base-960h` backbone so profile and receiver occupy the same latent space.
+`--profile-extractor wavlm` (with `--wavlm-model`) is available as an ablation.
+`--profile-layer` selects which transformer layer is pooled (`-1` = last).
 
 **All 24 speakers in parallel (on cluster):**
 ```bash
@@ -221,14 +252,14 @@ Wav2Vec2ForCTC.from_pretrained('facebook/wav2vec2-base-960h', cache_dir='data/ca
 Wav2Vec2Processor.from_pretrained('facebook/wav2vec2-base-960h', cache_dir='data/cache/huggingface')
 "
 
-# 4. Submit Phase 2 jobs
+# 4. Submit LoRA jobs
 mkdir -p logs
 sbatch src/asr_adaptation/slurm/run_baseline.sh
 sbatch --array=0-23  src/asr_adaptation/slurm/run_lora_speaker.sh
-sbatch --array=0-23  src/asr_adaptation/slurm/run_lora_speaker_wav2vec2.sh   # Wav2Vec2 profile variant
+sbatch --array=0-23  src/asr_adaptation/slurm/run_lora_speaker_wav2vec2.sh   # same extractor, separate output dir (see note)
 sbatch --array=0-23  src/asr_adaptation/slurm/run_lora_speaker_no_profile.sh # LoRA-only ablation
 
-# 5. Submit Phase 3 jobs
+# 5. Submit FiLM jobs
 FILM_JOB=$(sbatch --array=0-23 --parsable src/asr_adaptation/slurm/run_film_speaker.sh)
 sbatch --array=0-23 --dependency=afterok:$FILM_JOB src/asr_adaptation/slurm/run_film_wrong_speaker.sh
 # Layer sweep (optional, 6 speakers × 3 layers):
@@ -250,7 +281,7 @@ rsync -avz username@cluster:~/MastersThesis/data/processed/asr_adaptation/ \
 ## Tests
 
 ```bash
-# All Phase 2 tests
+# All adaptation tests
 uv run pytest tests/test_l2arctic_transcriptions.py \
                tests/test_wav2vec_lora.py \
                tests/test_wer.py \
@@ -277,8 +308,8 @@ src/asr_adaptation/
 ├── metrics/
 │   └── wer.py                       # compute_wer() with text normalization
 ├── models/
-│   ├── wav2vec_lora.py              # Phase 2: build_lora_model(), save/load adapter
-│   └── film_lora.py                 # Phase 3: FiLMConditionedLoraModel, build/load/save
+│   ├── wav2vec_lora.py              # build_lora_model(), save/load adapter
+│   └── film_lora.py                 # FiLMConditionedLoraModel, build/load/save
 ├── pipeline/
 │   ├── baseline_eval.py             # Ticket #4
 │   ├── lora_train.py                # Ticket #5 ✓
@@ -289,12 +320,12 @@ src/asr_adaptation/
 └── slurm/
     ├── run_baseline.sh
     ├── run_lora_speaker.sh
-    ├── run_lora_speaker_wav2vec2.sh  # LoRA + Wav2Vec2 profile (ablation)
+    ├── run_lora_speaker_wav2vec2.sh  # explicit --profile-extractor wav2vec2 (= the default)
     ├── run_lora_speaker_no_profile.sh # LoRA-only, no FiLM (ablation)
     ├── run_data_size.sh
-    ├── run_film_speaker.sh           # Phase 3: FiLM+LoRA, all 24 speakers
-    ├── run_film_wrong_speaker.sh     # Phase 3: wrong-speaker control
-    └── run_film_layer_sweep.sh       # Phase 3: profile layer sweep (layers 4/6/9)
+    ├── run_film_speaker.sh           # FiLM+LoRA, all 24 speakers
+    ├── run_film_wrong_speaker.sh     # wrong-speaker control
+    └── run_film_layer_sweep.sh       # profile layer sweep (layers 4/6/9)
 ```
 
 ## L2-ARCTIC Speakers

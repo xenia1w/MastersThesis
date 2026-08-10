@@ -158,9 +158,16 @@ def test_merge_results_raises_if_no_csvs(tmp_path: Path) -> None:
 # Tests: constants
 # ---------------------------------------------------------------------------
 
-def test_n_values_covers_expected_range() -> None:
-    assert N_VALUES == [1, 5, 10, 20, 50, 100, 200]
+def test_n_values_is_a_well_formed_sweep() -> None:
+    # Duplicates would make two runs write the same {speaker}_n{n}_seed{seed}.csv,
+    # so the sweep silently loses a point; n_train must also be trainable (>= 1).
+    assert N_VALUES, "sweep must contain at least one n_train"
+    assert len(set(N_VALUES)) == len(N_VALUES), "duplicate n_train values collide on disk"
+    assert all(n >= 1 for n in N_VALUES)
+    assert N_VALUES == sorted(N_VALUES)
 
 
-def test_seeds_has_three_values() -> None:
-    assert len(SEEDS) == 3
+def test_seeds_are_unique() -> None:
+    # Same collision argument as above, on the seed axis.
+    assert SEEDS, "sweep must contain at least one seed"
+    assert len(set(SEEDS)) == len(SEEDS), "duplicate seeds collide on disk"

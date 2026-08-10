@@ -2,7 +2,7 @@
 Smoke test 1/3 — KISSKI connection + profile building.
 
 Builds a metadata_only profile for Monro Inc (call 4320211) and saves it
-to data/processed/lexical_stylistic_prompting/profiles/ for use in step 3.
+to data/processed/linguistic_prompting/profiles/ for use in step 3.
 
 Run: uv run scripts/smoke_test_prompted_1_kisski.py
 """
@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from loguru import logger
 
-from src.lexical_stylistic_prompting.models.speaker_profile import (
+from src.linguistic_prompting.models.speaker_profile import (
     ProfileStrategy,
     build_profile,
     save_profile,
